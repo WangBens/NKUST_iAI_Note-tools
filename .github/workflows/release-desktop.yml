@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Release tag (e.g., v1.0.0)"
-        required: false
-        default: "v1.0.0"
+        description: "Release tag to publish (e.g., v1.0.1)"
+        required: true
+        default: "v1.0.1"
 
 permissions:
   contents: write
@@ -22,10 +22,13 @@ jobs:
         include:
           - os: windows-latest
             platform: win
+            args: --win nsis zip
           - os: macos-latest
             platform: mac
+            args: --mac dmg zip
           - os: ubuntu-latest
             platform: linux
+            args: --linux AppImage deb
 
     runs-on: ${{ matrix.os }}
 
@@ -43,6 +46,9 @@ jobs:
           corepack enable
           pnpm install --frozen-lockfile
 
+      - name: Run Automated Tests
+        run: pnpm run test
+
       - name: Build Web Application
         run: pnpm run build
 
@@ -50,9 +56,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: pnpm exec electron-builder --${{ matrix.platform }} --publish never
+        run: pnpm exec electron-builder ${{ matrix.args }} --publish never
 
-      - name: Upload Release Artifacts
+      - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.platform }}
@@ -63,3 +69,45 @@ jobs:
             release/*.AppImage
             release/*.deb
           if-no-files-found: warn
+
+  publish-release:
+    needs: build-desktop
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download All Platform Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten Release Files
+        run: |
+          mkdir -p dist-release
+          find artifacts -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.deb" \) -exec cp {} dist-release/ \;
+          ls -lh dist-release/
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag_name || github.ref_name }}
+          name: "${{ inputs.tag_name || github.ref_name }}｜知音筆記 NKUST iAI Note Tools (Windows / macOS / Linux)"
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## 知音筆記｜NKUST iAI Note Tools 跨平台桌面版 APP
+
+            > **專案初衷**：在老師課堂允許錄音的前提下，讓學生能透過自己的課堂錄音，安全串接國立高雄科技大學（NKUST）iAI 平台提供的語音辨識（`Asr`）與大型語言模型（`Furen` 系列），自動整理出結構清晰、含公式與重點複習的個人專屬學習筆記。
+
+            ### 📦 跨平台下載說明
+            - **Windows (x64)**：下載 `Setup.exe`（安裝版）或 `.zip`（免安裝綠色版，解壓縮即可執行）
+            - **macOS (Apple Silicon / Intel)**：下載 `.dmg` 或 `.zip`
+            - **Linux (x64)**：下載 `.AppImage`（通用免安裝）或 `.deb`（Ubuntu / Debian 安裝包）
+
+            ### ✨ 本版亮點與版本更新（v1.0.1）
+            - **首次啟動捷徑精靈**：安裝並首次開啟程式後，會彈出視窗詢問「是否要在桌面建立捷徑？」——選「是」建立於使用者桌面，選「否」則自動建立於程式安裝資料夾中（完整支援 Windows `.lnk`、macOS `.app` 符號連結與 Linux `.desktop` 啟動器）。
+            - **跨平台全支援**：同步自動化建置 Windows、macOS（arm64 / x64）、Linux（AppImage / deb）三大作業系統安裝包。
+            - **JSON 容錯與斷點續跑強化**：自動本地修復模型回傳漏冒號（如 `"body"> ...`）、中文引號與尾端空白註解物件，不額外消耗 Token 並放寬長錄音二分切分的容錯次數。
+            - **零個資留存**：API Key 僅存於執行期記憶體，復原檔與錯誤報告皆自動遮蔽憑證。
+          files: dist-release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

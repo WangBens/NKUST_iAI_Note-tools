@@ -1,14 +1,163 @@
 import { app, BrowserWindow, dialog, shell } from "electron";
-import { existsSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, "..");
+const APP_SHORTCUT_NAME = "NKUST iAI Note Tools";
 
 let mainWindow = null;
 let gatewayUrl = "http://127.0.0.1:3000";
 const serverCleanups = [];
+
+function getShortcutStatePath() {
+  return join(app.getPath("userData"), "shortcut-prompt-v1.json");
+}
+
+function getInstallFolder() {
+  if (process.platform === "darwin") {
+    // Inside /Applications/NKUST iAI Note Tools.app/Contents/MacOS/...
+    const appBundleIdx = process.execPath.indexOf(".app/");
+    if (appBundleIdx > 0) {
+      return dirname(process.execPath.slice(0, appBundleIdx + 4));
+    }
+  }
+  return dirname(process.execPath);
+}
+
+function getAppTargetPath() {
+  if (process.platform === "darwin") {
+    const appBundleIdx = process.execPath.indexOf(".app/");
+    if (appBundleIdx > 0) {
+      return process.execPath.slice(0, appBundleIdx + 4);
+    }
+  }
+  return process.execPath;
+}
+
+function createPlatformShortcut(targetDir) {
+  const execTarget = getAppTargetPath();
+  if (!existsSync(targetDir)) {
+    mkdirSync(targetDir, { recursive: true });
+  }
+
+  if (process.platform === "win32") {
+    const shortcutPath = join(targetDir, `${APP_SHORTCUT_NAME}.lnk`);
+    const ok = shell.writeShortcutLink(shortcutPath, "create", {
+      target: execTarget,
+      cwd: dirname(execTarget),
+      description: "知音筆記｜高科 iAI 課堂錄音轉學習講義工具",
+    });
+    return { ok, path: shortcutPath };
+  }
+
+  if (process.platform === "darwin") {
+    const linkPath = join(targetDir, `${APP_SHORTCUT_NAME}.app`);
+    if (linkPath === execTarget) {
+      const aliasPath = join(targetDir, `${APP_SHORTCUT_NAME} 捷徑.app`);
+      try {
+        if (existsSync(aliasPath)) unlinkSync(aliasPath);
+        symlinkSync(execTarget, aliasPath);
+        return { ok: true, path: aliasPath };
+      } catch {
+        return { ok: false, path: aliasPath };
+      }
+    }
+    try {
+      if (existsSync(linkPath)) unlinkSync(linkPath);
+      symlinkSync(execTarget, linkPath);
+      return { ok: true, path: linkPath };
+    } catch {
+      return { ok: false, path: linkPath };
+    }
+  }
+
+  // Linux (.desktop launcher)
+  const desktopFilePath = join(targetDir, "NKUST-iAI-Note-Tools.desktop");
+  const iconCandidate = join(rootDir, "public", "icon.png");
+  const desktopEntry = [
+    "[Desktop Entry]",
+    "Type=Application",
+    `Name=${APP_SHORTCUT_NAME}`,
+    "Comment=NKUST iAI Lecture Audio to Study Notes Tool",
+    `Exec="${execTarget}" %U`,
+    ...(existsSync(iconCandidate) ? [`Icon=${iconCandidate}`] : []),
+    "Terminal=false",
+    "Categories=Education;Utility;",
+    "",
+  ].join("\n");
+  try {
+    writeFileSync(desktopFilePath, desktopEntry, "utf8");
+    chmodSync(desktopFilePath, 0o755);
+    return { ok: true, path: desktopFilePath };
+  } catch {
+    return { ok: false, path: desktopFilePath };
+  }
+}
+
+async function promptShortcutOnFirstRun(parentWindow) {
+  if (!app.isPackaged && process.env.FORCE_SHORTCUT_PROMPT !== "1") {
+    return;
+  }
+  const statePath = getShortcutStatePath();
+  if (existsSync(statePath)) {
+    try {
+      const saved = JSON.parse(readFileSync(statePath, "utf8"));
+      if (saved?.prompted) return;
+    } catch {
+      /* re-prompt if corrupted */
+    }
+  }
+
+  const installDir = getInstallFolder();
+  const desktopDir = app.getPath("desktop");
+
+  const { response } = await dialog.showMessageBox(parentWindow, {
+    type: "question",
+    title: "建立捷徑｜Create Shortcut",
+    message: "是否要在桌面建立「知音筆記（NKUST iAI Note Tools）」捷徑？",
+    detail:
+      "• 選擇「是」：將捷徑新增至您的桌面。\n• 選擇「否」：將捷徑新增至您安裝此程式的資料夾中。\n\nCreate a shortcut on your Desktop? (Selecting 'No' will place the shortcut in the installation folder instead.)",
+    buttons: ["是 (建立於桌面)", "否 (建立於安裝資料夾)"],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  });
+
+  const createOnDesktop = response === 0;
+  const targetDir = createOnDesktop ? desktopDir : installDir;
+  const result = createPlatformShortcut(targetDir);
+
+  try {
+    mkdirSync(dirname(statePath), { recursive: true });
+    writeFileSync(
+      statePath,
+      JSON.stringify(
+        {
+          prompted: true,
+          choice: createOnDesktop ? "desktop" : "installDir",
+          shortcutPath: result.path,
+          ok: result.ok,
+          updatedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+  } catch {
+    /* ignore state write error */
+  }
+}
 
 function resolveFfmpegBinary() {
   const exe = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
@@ -117,6 +266,7 @@ async function createMainWindow() {
   });
 
   await mainWindow.loadURL(gatewayUrl);
+  await promptShortcutOnFirstRun(mainWindow);
 }
 
 app.whenReady().then(async () => {

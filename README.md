@@ -1,243 +1,245 @@
-# NKUST iAI Note Tools｜高科 iAI 課堂錄音轉學習講義工具
+# NKUST iAI Note Tools｜知音筆記（高科 iAI 課堂錄音轉學習講義工具）
 
-一套專為 **國立高雄科技大學（NKUST）iAI 平台** 設計的開源 Web 工具。只要輸入自己的高科 iAI API Key 並上傳課堂錄音檔（支援 MP3 / M4A / WAV，單檔最高 30 MB），系統就會自動完成 **本機音訊分段轉錄 → 繁體中文逐字稿校正 → 多階段 AI 講義撰寫與校核 → Markdown 匯出**，產出結構清晰、含 LaTeX 公式、比較表格、分步例題與章末複習的繁體中文學習筆記。
-
-> 本專案採用 **MIT License** 完全開源，歡迎自由下載、本機執行、部署與二次開發。
+**Language / 語言**：[繁體中文](#繁體中文說明) | [English](#english-documentation)
 
 ---
 
-## 核心特色
+<a id="繁體中文說明"></a>
 
-- **大檔自動切段，突破 API 上傳限制**：自動透過內建 `ffmpeg-static` 將長錄音轉為單聲道 16 kHz / 32 kbps MP3 小段再送往 `Asr`，避免觸發上游 `413 Request Entity Too Large` 或反向代理逾時。
-- **ASR 退化迴圈清洗**：自動偵測並移除語音辨識常見的連續跳針重複與分段邊界重疊。
-- **教科書等級 Markdown 講義架構**：
-  - 開頭提供「本次學習概覽」（學習範圍與閱讀方式導覽）；
-  - 正文依知識脈絡分章（`##`／`###`）並以 `---` 分隔，交替運用條列重點、Markdown 比較表格、精確 LaTeX 公式推導、分步計算例題與程式碼區塊；
-  - 結尾自動整合唯一一份「全篇複習整理」（`必會觀念｜複習提示` 總表＋`自我檢查` 編號思考題）。
-- **多階段校核與斷點續跑（不浪費 Token）**：
-  - 每段皆經過「內容篩選 → 講義撰寫 → 獨立校核」，並搭配本地數值驗算、LaTeX 可渲染性檢查與 JSON 容錯修補；
-  - 支援 **2 段受控並發** 加速長錄音整理；
-  - 支援瀏覽器本地暫存與「下載復原檔（不含 API Key）」，中途網路中斷或額度不足時可從斷點續跑，已完成段落不重花額度。
-- **零伺服器個資留存**：API Key 僅存於瀏覽器記憶體並以 HTTP Header 傳送，不寫入資料庫、Cookie 或復原檔；暫存音訊於處理結束或取消後自動刪除。
+## 🌱 專案初衷（Purpose & Vision）
+
+> **「在老師課堂允許錄音的前提下，幫助學生把課堂錄音串接學校提供的 AI 模型，整理成一份真正屬於自己、結構清晰且便於複習的學習重點。」**
+
+在大學專業課程（例如嵌入式系統、電子學、工程數學、演算法與各跨學科領域）中，課堂資訊量龐大，學生往往很難在「專心聽講理解」與「逐字抄寫筆記」之間兼顧。**國立高雄科技大學（NKUST）iAI 平台**已為全校師生提供了優秀的語音辨識（`Asr`）與大型語言模型（`Furen` 系列），本專案便是為此打造的開源輔助工具：
+
+- **尊重教學規範**：請務必在授課教師明確允許錄音的前提下使用，並僅供個人課後學習與複習用途。
+- **善用校內資源**：直接串接學生本人的高科 iAI API Key，無須額外付費購買外部商業轉錄服務。
+- **隱私優先、零個資留存**：所有音訊切段與檔案處理皆在使用者本機端完成；API Key 僅暫存於執行期記憶體，絕不寫入資料庫、Cookie 或復原檔。
+- **MIT 完全開源**：歡迎全校同學、老師與開發者自由下載、部署、學習與二次開發。
 
 ---
 
-## 系統架構與運作原理
+## ✨ 完整功能介紹
 
-### 1. 三層本地服務架構
+1. **大檔音訊自動分段轉碼（突破上傳與逾時限制）**
+   - 支援 `MP3` / `M4A` / `WAV`，單檔最高 **30 MB**。
+   - 內建 `ffmpeg-static` 自動將長錄音轉碼為單聲道 16 kHz / 32 kbps MP3（每 3 分鐘一段）再逐段送往 iAI `Asr`，避免觸發上游 `413 Request Entity Too Large` 或反向代理逾時。
+2. **ASR 退化迴圈與邊界重疊清洗**
+   - 自動偵測並移除語音辨識常見的連續跳針重複字詞與切段交界處的重複句子。
+3. **繁體中文逐字稿校正（保留英文專有名詞）**
+   - 透過 `Furen` 系列模型與 `opencc-js` 統一校正同音錯字、標點與斷句，同時完整保留英文技術術語、數學公式與程式碼縮排。
+4. **多階段 AI 學習講義管線（篩選 → 撰寫 → 獨立校核 → 合併）**
+   - **階段 A（內容篩選）**：自動區分 `study`（學習知識／考試作業提醒）、`aside`（閒聊）與 `noise`（雜訊）。
+   - **階段 B（講義撰寫）**：產出教科書等級 Markdown 結構——包含「本次學習概覽」、依知識脈絡分章（`##` / `###`）、Markdown 比較表格、精確 LaTeX 數學公式推導、分步例題與附語言標籤的程式碼區塊。
+   - **階段 C（獨立校核與本地容錯）**：驗證逐字稿單位覆蓋率、內建**數值四則運算驗算**、**KaTeX 公式可渲染性檢查**，並具備**零 Token 本地 JSON 語法修復**（自動修復漏冒號、中文引號、尾端空白註解等模型常見語法瑕疵）。
+   - **階段 D（智慧合併與全篇複習）**：本地整合所有分段，自動去重並於文末產生唯一一份「全篇複習整理」（`必會觀念｜複習提示` 總表＋連續編號 `自我檢查` 思考題）。
+5. **2 路受控並發與斷點續跑（不浪費 API 額度）**
+   - 支援 2 段受控並發加速長錄音整理；若遇單段複雜內容，系統會自動二分切分為小單位重試。
+   - 支援瀏覽器本地暫存與 **「下載復原檔（不含 API Key）」**，若中途網路中斷或額度用盡，可匯入復原檔從斷點直接續跑，已完成段落不重花任何 Token。
+6. **跨平台原生桌面版 APP（Windows / macOS / Linux）**
+   - 封裝為 Electron 桌面應用程式，點擊即自動於背景啟動內建 `Bridge`、`Web Server` 與 `Gateway`，免開終端機、免安裝 Node.js 與 FFmpeg。
+   - **首次啟動捷徑精靈**：安裝後首次啟動會主動彈窗詢問「是否要在桌面建立捷徑？」——選 **「是」** 自動建立於使用者桌面；選 **「否」** 則自動建立於使用者安裝資料夾中。
+
+---
+
+## 🏗️ 系統架構與運作原理
 
 ```mermaid
 flowchart LR
-    Browser["瀏覽器前端<br/>React 19 + KaTeX 預覽"] -->|HTTP :3000| Gateway["Gateway<br/>local/ubuntu-gateway.mjs"]
-    Gateway -->|前端頁面| Web["Web Server :3001<br/>Vinext / Next.js App Router"]
+    UI["桌面 APP 視窗 / 瀏覽器前端<br/>React 19 + KaTeX 預覽"] -->|HTTP :3000| Gateway["Gateway<br/>local/ubuntu-gateway.mjs"]
+    Gateway -->|前端頁面| Web["Web Server :3001<br/>Vinext App Router"]
     Gateway -->|/api/audio/*| Bridge["Local Bridge :4175<br/>local/iai-bridge.mjs + ffmpeg"]
     Bridge -->|POST /audio/transcriptions<br/>POST /chat/completions| iAI["高科 iAI API<br/>Asr + Furen LLM"]
 ```
 
-- **Web 應用（`app/page.tsx`）**：提供 6 步驟引導介面、Markdown + LaTeX 即時預覽、復原檔匯入／匯出與核心筆記管線調度。
-- **Local Bridge（`local/iai-bridge.mjs`，預設 `127.0.0.1:4175`）**：
-  - 負責接收錄音、呼叫 `ffmpeg` 切段轉碼、逐段送往 iAI `Asr` 並以 NDJSON 串流回報即時進度；
-  - 代理轉發 LLM 請求並定時送出心跳（Heartbeat），防止長耗時推論遭反向代理（如 Cloudflare 524）中斷；
-  - 內建並發去重機制，避免重複送出相同請求造成多餘計費。
-- **Gateway（`local/ubuntu-gateway.mjs`，正式部署用，預設 `:3000`）**：統一將前端頁面導向 `:3001`、將 `/api/audio/*` 導向 `:4175`，方便單一對外入口部署。
-
-### 2. 完整 AI 處理管線（Pipeline）
-
-```mermaid
-flowchart TD
-    A["1. 上傳錄音檔<br/>(MP3 / M4A / WAV ≤ 30 MB)"] --> B["2. ffmpeg 本機轉碼分段<br/>(單聲道 16 kHz / 32 kbps MP3)"]
-    B --> C["3. 高科 iAI Asr 分段轉錄<br/>+ 邊界重疊與退化迴圈清洗"]
-    C --> D["4. LLM 逐字稿校正<br/>(繁體中文、修正錯字、保留英文術語與公式)"]
-    D --> E["5. 切分語意單位 (sourceUnits)<br/>2 段受控並發處理"]
-    E --> F["階段 A：內容篩選 (FILTER_PROMPT)<br/>區分 study / aside / noise"]
-    F --> G["階段 B：講義撰寫 (HANDOUT_WRITER_PROMPT)<br/>結構化 Markdown + JSON 覆蓋回執"]
-    G --> H["階段 C：獨立校核 (HANDOUT_REVIEW_PROMPT)<br/>核對覆蓋率、數值驗算、LaTeX 與 JSON 容錯"]
-    H -->|單段失敗| I["自動二分切分子單位重試<br/>並保存 Checkpoint"]
-    I --> F
-    H -->|全部通過| J["6. 本地智慧合併 (composeReaderBody)<br/>去重整併概覽、複習總表與自我檢查"]
-    J --> K["7. 匯出純淨 Markdown (.md)<br/>(含檔名主標題、KaTeX 公式、無多餘雜訊)"]
-```
-
-#### 各核心模組說明
-
-| 檔案路徑 | 職責說明 |
+| 核心模組 | 職責說明 |
 | --- | --- |
-| `lib/iai-workflow.ts` | 檔案驗證、ASR 退化清理、分段切分、Thinking 標籤與規則雜訊清洗、LaTeX 驗證與 Markdown 匯出（`buildMarkdown`） |
-| `lib/learning-instruction.ts` | 講義撰寫與校核共用的系統提示詞（`LEARNING_NOTES_INSTRUCTION`）與內部 JSON 傳輸規約 |
-| `lib/generic-content.ts` | 語意單位切分、篩選／回執解析、JSON 尾端退化本地修復、內容合規驗證與明確數值算式驗算（`assertNumericArithmetic`） |
-| `lib/generic-study.ts` | 完整多階段學習筆記主流程、2 路受控並發池、自動二分切分與 Checkpoint 斷點續跑管理 |
-| `lib/generic-reader.ts` | 本地合併多段章節、自動去重整併「本次學習概覽」與「全篇複習整理」表格與連續編號自我檢查題 |
-| `lib/study-text.ts` | 使用 `opencc-js` 將內文統一轉為繁體中文，同時完整保留英文術語、LaTeX 與程式碼區塊 |
-| `local/iai-bridge.mjs` | 本機音訊分段轉碼、iAI API 代理、NDJSON 進度串流與請求去重 |
+| `electron/main.mjs` | Electron 桌面主程序：整合三層本機服務、動態埠位分配、跨平台 `ffmpeg` 路徑解析與首次啟動捷徑精靈 |
+| `local/iai-bridge.mjs` | 本機音訊切段轉碼、iAI API 代理、NDJSON 進度串流、心跳保活與並發去重快取 |
+| `local/ubuntu-gateway.mjs` | 統一入口反向代理、同源檢查、CSP 安全標頭與請求大小保護 |
+| `lib/iai-workflow.ts` | 檔案驗證、ASR 退化清洗、分段切分、Thinking/規則雜訊過濾、KaTeX 驗證與 Markdown 匯出 |
+| `lib/generic-content.ts` | 語意單位切分、篩選／回執解析、本地 JSON 語法預修復（漏冒號／尾端雜訊）與數值算式驗算 |
+| `lib/generic-study.ts` | 多階段學習筆記主流程、2 路受控並發池、自動二分切分、容錯預算控制與斷點續跑 |
+| `lib/generic-reader.ts` | 本地智慧合併章節、統整唯一「本次學習概覽」與「全篇複習整理」 |
 
 ---
 
-## 環境需求
+## 📜 版本更新紀錄與版本控制（Changelog & Versioning）
 
-- **Node.js**：`>= 22.13.0`（建議 Node.js 22 LTS 或 24+）
-- **套件管理器**：`pnpm`（建議透過 Node 內建的 `corepack enable` 自動啟用 `pnpm@11.19.0`）
-- **FFmpeg**：專案已透過 `ffmpeg-static` 內建，通常無需額外安裝
-- **API Key**：高科 iAI 平台（`https://www.iai.nkust.edu.tw`）核發之有效 API Key
+本專案採用 **語意化版本控制（Semantic Versioning，`vMAJOR.MINOR.PATCH`）**，所有正式版均透過 Git Tag（`v*`）觸發 GitHub Actions 自動執行 109 項測試並同步建置 Windows、macOS、Linux 三大平台安裝包發布至 [GitHub Releases](https://github.com/WangBens/NKUST_iAI_Note-tools/releases)。
+
+| 版本號 | 發布日期 | 更新重點與控制項目 |
+| --- | --- | --- |
+| **`v1.0.1`** | 2026-11-21 | • **首次啟動捷徑精靈**：安裝後首次啟動彈窗詢問是否於桌面建立捷徑（選「是」建於桌面、選「否」建於安裝資料夾），支援 Win `.lnk` / macOS `.app` / Linux `.desktop`。<br>• **跨平台全自動化發布**：GitHub Actions 同步編譯並公開發布 Windows（NSIS 安裝版＋免安裝 Zip）、macOS（arm64 / x64 DMG＋Zip）、Linux（AppImage＋deb）。<br>• **JSON 容錯大升級**：新增本地語法修復，自動修補模型漏寫冒號（如 `"body"> ...`）、誤用中文引號與尾端空白註解物件，0 Token 救援失敗回覆並放寬二分切分重試配額。<br>• **雙語文件**：新增完整中英文 README 與版本控制說明。 |
+| **`v1.0.0`** | 2026-11-21 | • **桌面版 APP 正式封裝**：整合 Electron + ASAR 封裝與內建 `ffmpeg-static` 解包，實現免終端機、免裝 Node.js 一鍵啟動桌面圖形介面。<br>• **開源化與隱私清理**：移除所有環境特定路徑與內部設定，加入 MIT License 與完整開源指南。 |
+| **`v0.9.x`** | 2026-11-19 | • **多階段校核與 2 路並發管線**：導入「篩選 → 撰寫 → 獨立校核 → 本地合併」架構，支援斷點續跑復原檔（不含 API Key）、LaTeX KaTeX 嚴格驗算與數值運算一致性檢查。 |
+| **`v0.5.x`** | 2026-09-25 | • **三層服務架構與防逾時保活**：建立 `Gateway + Web + Bridge` 架構，加入 NDJSON 串流進度、心跳保活（避免 Cloudflare 524）與並發請求去重。 |
 
 ---
 
-## 桌面版 APP（Windows / macOS / Linux）下載與打包
+## 💻 下載與安裝教學
 
-本專案已整合 **Electron** 桌面應用程式容器（`electron/main.mjs`），啟動桌面版 APP 時，程式會在背景自動拉起內建的 `Bridge`（音訊轉碼與 LLM 代理）、`Web Server` 與 `Gateway`，並開啟原生桌面圖形化視窗，**使用者無需手動開啟終端機或安裝 Node.js**。
+### 方式一：直接下載跨平台桌面版 APP（推薦一般使用者）
 
-### 1. 直接從 GitHub Releases 下載安裝（一般使用者推薦）
-
-前往本儲存庫的 [**GitHub Releases**](https://github.com/WangBens/NKUST_iAI_Note-tools/releases) 頁面，依作業系統下載對應檔案：
+前往 [**GitHub Releases**](https://github.com/WangBens/NKUST_iAI_Note-tools/releases) 下載對應系統的最新安裝包：
 
 - **Windows（64-bit）**：
-  - `NKUST-iAI-Note-Tools-1.0.0-win-x64.zip`（免安裝綠色版，解壓縮後雙擊 `NKUST iAI Note Tools.exe` 即可直接啟動 UI 視窗與內建音訊服務）
-- **macOS（Apple Silicon / Intel）**：
-  - `NKUST iAI Note Tools-1.0.0-arm64.dmg` / `.zip`
+  - `NKUST iAI Note Tools Setup x.x.x.exe`（標準安裝程式）或 `NKUST iAI Note Tools-x.x.x-win.zip`（免安裝綠色版）
+- **macOS（Apple Silicon `arm64` / Intel `x64`）**：
+  - `NKUST iAI Note Tools-x.x.x-arm64.dmg` / `x64.dmg`（拖曳至「應用程式」資料夾即可）
 - **Linux（Ubuntu / Debian / 通用）**：
-  - `NKUST iAI Note Tools-1.0.0.AppImage` / `.deb`
+  - `NKUST iAI Note Tools-x.x.x.AppImage`（賦予執行權限 `chmod +x` 即可直接啟動）或 `.deb` 套件
 
-### 2. 開發者本機啟動與自行打包桌面版 APP
+> **💡 首次開啟提示**：安裝並首次啟動 APP 時，系統會跳出視窗詢問 **「是否要在桌面建立捷徑？」**，選 **「是」** 會新增至桌面，選 **「否」** 則會新增至您安裝程式的資料夾中。
 
-若您想在本機以桌面視窗模式啟動或自行打包安裝檔：
+### 方式二：開發者本機執行與自行打包
+
+需求環境：**Node.js `>= 22.13.0`**、`pnpm`（透過 `corepack enable` 啟用）
 
 ```bash
-# 先建置前端並直接開啟 Electron 桌面 APP 視窗
+# 1. 下載專案並安裝套件
+git clone https://github.com/WangBens/NKUST_iAI_Note-tools.git
+cd NKUST_iAI_Note-tools
+corepack enable
+pnpm install
+
+# 2. 啟動桌面版 APP（自動建置並開啟原生視窗）
 pnpm run electron:dev
 
-# 若已建置過 dist，可直接秒開桌面視窗
-pnpm run electron:start
+# 3. 或以網頁開發模式啟動（需開兩個終端機）
+pnpm run bridge   # 終端機 1：音訊與 LLM 橋接器 (:4175)
+pnpm run dev      # 終端機 2：前端 Web 介面 (:3000)
 
-# 打包當前作業系統的桌面安裝檔（輸出至 release/ 目錄）
-pnpm run electron:build
+# 4. 執行 109 項自動化測試（使用離線模擬伺服器，不消耗 iAI 額度）
+pnpm run test
 ```
 
-### 3. 手機與平板（iOS / Android）跨裝置操作方式
+### 方式三：手機與平板（iOS / Android）操作方式
 
-由於錄音轉碼需要執行 `ffmpeg`，且長錄音 LLM 推論需維持長連線心跳，手機與平板建議採用以下兩種方式操作（網頁介面已具備 RWD 響應式排版）：
-
-1. **區網／Tailscale／Cloudflare Tunnel 連線（推薦）**：於電腦或伺服器啟動本服務（或開啟桌面版 APP），手機透過瀏覽器連線至該主機網址，並可點擊瀏覽器選單 **「加入主畫面（Add to Home Screen）」** 作為獨立全螢幕 Web App 操作。
-2. **Capacitor 原生封裝**：若已架設固定後端網址，可透過 `@capacitor/cli` 將前端封裝為 Android APK 或 iOS IPA，指向您的 Gateway 端點即可。
+網頁介面已支援響應式排版（RWD）。可於電腦或 Ubuntu 伺服器啟動服務（搭配區網、Tailscale 或 Cloudflare Tunnel），在手機瀏覽器開啟網址後點擊 **「加入主畫面」** 即可如 App 般全螢幕操作。
 
 ---
 
-## 安裝與本機啟動教學（命令列／網頁開發模式）
+<a id="english-documentation"></a>
 
-### 步驟 1：下載專案並安裝相依套件
+# NKUST iAI Note Tools (English Documentation)
+
+**Language**：[繁體中文](#繁體中文說明) | [English](#english-documentation)
+
+---
+
+## 🌱 Project Purpose & Vision
+
+> **"With the instructor's permission to record lectures, this project empowers students to connect their classroom audio recordings to the university's AI models and generate well-structured, personalized study notes."**
+
+University courses—especially technical subjects like Embedded Systems, Electronics, Engineering Mathematics, and Computer Science—pack dense concepts into every lecture. **National Kaohsiung University of Science and Technology (NKUST)** provides an institutional **iAI Platform** offering speech recognition (`Asr`) and Large Language Models (`Furen` series). **NKUST iAI Note Tools** bridges classroom recordings and the campus iAI API in an open-source, privacy-first way:
+
+- **Academic Integrity First**: Always obtain explicit permission from your instructor before recording any lecture, and use generated notes strictly for personal study and review.
+- **Campus-Native AI Integration**: Connects directly using your own NKUST iAI API Key—no paid third-party transcription subscriptions required.
+- **Privacy by Design (Zero Data Retention)**: Audio splitting and transcoding run 100% locally on your machine. Your API Key stays in volatile runtime memory only and is never written to databases, cookies, or recovery files.
+- **Fully Open Source (MIT License)**: Free to download, self-host, audit, and extend.
+
+---
+
+## ✨ Key Features
+
+1. **Automatic Large-Audio Segmentation (`ffmpeg-static` Built-in)**
+   - Accepts `MP3`, `M4A`, and `WAV` files up to **30 MB**.
+   - Automatically transcodes audio locally into mono 16 kHz / 32 kbps MP3 segments (3 minutes each) before sending to `Asr`, eliminating `413 Payload Too Large` errors and reverse-proxy timeouts.
+2. **ASR Degeneration & Boundary Overlap Cleanup**
+   - Automatically detects and removes repetitive ASR hallucination loops and overlapping sentences across segment boundaries.
+3. **Traditional Chinese Transcript Correction**
+   - Fixes homophones, punctuation, and sentence boundaries using `Furen` models and `opencc-js`, while preserving English technical terms, mathematical notation, and code indentation.
+4. **Multi-Stage AI Study Handout Pipeline (Filter → Draft → Independent Review → Merge)**
+   - **Stage A (Content Filter)**: Classifies units into `study` (academic concepts & exam/assignment reminders), `aside` (chitchat), and `noise`.
+   - **Stage B (Handout Writer)**: Produces textbook-grade Markdown with a Learning Overview, logical chapters (`##` / `###`), comparison tables, KaTeX/LaTeX formulas, step-by-step worked examples, and syntax-highlighted code blocks.
+   - **Stage C (Independent Review & Local Repair)**: Verifies unit-by-unit coverage, checks explicit numeric arithmetic, validates KaTeX renderability, and applies **zero-token local JSON syntax repair** (automatically fixing missing colons, Chinese quotation marks, and phantom trailing commentary blocks).
+   - **Stage D (Smart Local Merge)**: Deduplicates chapters and compiles a single unified End-of-Document Review table (`Key Concepts | Review Tips`) plus sequentially numbered self-check questions.
+5. **Controlled 2-Way Concurrency & Checkpoint Resume (Zero Wasted Tokens)**
+   - Processes up to 2 chunks concurrently and automatically bisects complex chunks on retry.
+   - Supports browser local checkpoints and **Key-Free Recovery JSON Export** so interrupted jobs (network drop or quota limit) resume right where they stopped without re-billing completed segments.
+6. **Cross-Platform Native Desktop App (Windows / macOS / Linux)**
+   - Packaged with **Electron**—automatically boots the embedded `Bridge`, `Web Server`, and `Gateway` in the background with no terminal commands, Node.js, or FFmpeg installation required.
+   - **First-Launch Shortcut Prompt**: Upon first launch after installation, a dialog asks whether to create a Desktop shortcut. Choosing **"Yes"** places the shortcut on your Desktop; choosing **"No"** places it inside the application's installation folder (`.lnk` on Windows, `.app` symlink on macOS, `.desktop` launcher on Linux).
+
+---
+
+## 🏗️ System Architecture
+
+```mermaid
+flowchart LR
+    UI["Desktop App Window / Browser UI<br/>React 19 + KaTeX Preview"] -->|HTTP :3000| Gateway["Gateway<br/>local/ubuntu-gateway.mjs"]
+    Gateway -->|Web Pages| Web["Web Server :3001<br/>Vinext App Router"]
+    Gateway -->|/api/audio/*| Bridge["Local Bridge :4175<br/>local/iai-bridge.mjs + ffmpeg"]
+    Bridge -->|POST /audio/transcriptions<br/>POST /chat/completions| iAI["NKUST iAI API<br/>Asr + Furen LLM"]
+```
+
+| Core Module | Responsibility |
+| --- | --- |
+| `electron/main.mjs` | Electron main process: boots all three local services, resolves bundled `ffmpeg`, and runs the cross-platform first-launch shortcut prompt |
+| `local/iai-bridge.mjs` | Local FFmpeg segmentation, iAI API proxy, NDJSON progress streaming, heartbeat keep-alive, and credential-isolated request deduplication |
+| `local/ubuntu-gateway.mjs` | Unified reverse proxy, same-origin enforcement, CSP headers, and payload size guards |
+| `lib/iai-workflow.ts` | File validation, ASR loop cleanup, chunking, thinking/meta-rule stripping, KaTeX verification, and Markdown export |
+| `lib/generic-content.ts` | Semantic unit splitting, filter/receipt parsing, local malformed JSON repair, and numeric arithmetic verification |
+| `lib/generic-study.ts` | Multi-stage pipeline orchestrator, 2-way concurrency pool, automatic bisection, retry budget control, and checkpoint resume |
+| `lib/generic-reader.ts` | Local chapter merger, overview deduplication, and unified end-of-document review builder |
+
+---
+
+## 📜 Changelog & Version Control
+
+This project follows **Semantic Versioning (`vMAJOR.MINOR.PATCH`)**. Pushing a version tag (`v*`) triggers the automated GitHub Actions pipeline (`.github/workflows/release-desktop.yml`), which runs all **109 automated tests**, builds native installers for **Windows, macOS, and Linux**, and publishes them to [GitHub Releases](https://github.com/WangBens/NKUST_iAI_Note-tools/releases).
+
+| Version | Release Date | Highlights & Controls |
+| --- | --- | --- |
+| **`v1.0.1`** | 2026-11-21 | • **First-Launch Shortcut Prompt**: Prompts users on first launch to create a shortcut on the Desktop (`Yes`) or in the installation folder (`No`) across Windows, macOS, and Linux.<br>• **Full Cross-Platform Releases**: Automated CI builds and publishes Windows (NSIS Setup + Portable Zip), macOS (Apple Silicon & Intel DMG + Zip), and Linux (AppImage + `.deb`).<br>• **Enhanced Local JSON Repair**: Fixes missing colons (`"body"> ...`), misquoted fields, Chinese closing quotes, and trailing phantom commentary objects locally at zero token cost; expands retry allowance for bisected chunks.<br>• **Bilingual Documentation**: Added full English + Traditional Chinese README and version changelog. |
+| **`v1.0.0`** | 2026-11-21 | • **Desktop App Packaging**: Integrated Electron with ASAR packaging and unpacked `ffmpeg-static` for zero-setup native GUI launch.<br>• **Open-Source Release**: Audited for zero PII/secrets, added MIT License and deployment guides. |
+| **`v0.9.x`** | 2026-11-19 | • **Multi-Stage Verified Pipeline**: Added Filter → Write → Independent Review workflow, 2-way concurrency, key-free recovery checkpoints, and strict KaTeX/arithmetic validation. |
+| **`v0.5.x`** | 2026-09-25 | • **Three-Tier Local Architecture**: Built `Gateway + Web + Bridge` with NDJSON streaming, Cloudflare 524 heartbeat keep-alive, and concurrent request deduplication. |
+
+---
+
+## 💻 Download & Installation
+
+### Option 1: Download Pre-Built Desktop App (Recommended)
+
+Visit [**GitHub Releases**](https://github.com/WangBens/NKUST_iAI_Note-tools/releases) and download the package for your OS:
+
+- **Windows (x64)**: `NKUST iAI Note Tools Setup x.x.x.exe` (Installer) or `.zip` (Portable)
+- **macOS (Apple Silicon `arm64` / Intel `x64`)**: `.dmg` or `.zip`
+- **Linux (x64)**: `.AppImage` (Portable) or `.deb` (Debian / Ubuntu)
+
+### Option 2: Run from Source (Developers)
+
+Requirements: **Node.js `>= 22.13.0`**, `pnpm` (via `corepack enable`)
 
 ```bash
 git clone https://github.com/WangBens/NKUST_iAI_Note-tools.git
 cd NKUST_iAI_Note-tools
 corepack enable
 pnpm install
-```
 
-### 步驟 2：啟動本機服務（開發／個人使用）
+# Launch native Electron Desktop App
+pnpm run electron:dev
 
-請開啟**兩個終端機視窗**（PowerShell、Terminal 皆可）：
-
-- **終端機 1：啟動音訊與 LLM 橋接器（Port 4175）**
-  ```bash
-  pnpm run bridge
-  ```
-- **終端機 2：啟動前端 Web 介面（Port 3000）**
-  ```bash
-  pnpm run dev
-  ```
-
-啟動完成後，打開瀏覽器前往 `http://localhost:3000` 即可使用。
-
----
-
-## 使用步驟說明
-
-開啟網頁後，依照畫面上的 6 步驟引導操作即可：
-
-1. **步驟 1｜驗證 API Key**：貼上您的高科 iAI API Key 並點擊驗證（金鑰僅暫存於瀏覽器記憶體，關閉頁面即清除）。
-2. **步驟 2｜上傳課堂錄音**：拖曳或選擇 MP3、M4A 或 WAV 錄音檔（單檔上限 30 MB）。
-3. **步驟 3｜選擇輸出模式與模型**：
-   - 可選擇「僅輸出繁體中文逐字稿」或「逐字稿校正＋完整學習講義」；
-   - 選擇欲使用的 Furen 系列模型（預設 `Furen-std`，複雜理工課程可視需求切換更高階模型）。
-4. **步驟 4｜自訂額外要求（選填）**：可補充個人閱讀偏好（例如「加強考點整理」、「多舉實務例子」），亦可開啟瀏覽器本地自動暫存進度。
-5. **步驟 5｜即時處理與斷點續跑**：
-   - 畫面會即時顯示上傳、轉碼、分段轉錄、逐字稿校正與重點整理狀態；
-   - 若中途因網路不穩、逾時或額度不足暫停，可點選 **「下載復原檔（不含 API Key）」** 保存進度，或直接按 **「續跑未完成重點」** 接著補齊，已完成段落不會重跑。
-6. **步驟 6｜預覽與匯出**：
-   - 直接於網頁檢視渲染後的 Markdown 與 LaTeX 數學公式；
-   - 一鍵複製、下載 `<檔名>-重點整理.md` 或另存純逐字稿 `.md`。
-
----
-
-## Linux / Ubuntu 正式環境部署（選用）
-
-專案根目錄已附帶三份通用 `systemd` 服務範例檔：
-
-- `study-notes-bridge.service`（音訊／LLM 橋接服務，Port `4175`）
-- `study-notes-web.service`（`vinext start` 正式版前端，Port `3001`）
-- `study-notes-gateway.service`（統一入口反向代理，Port `3000`）
-
-部署步驟：
-
-```bash
-# 1. 建置正式版
-pnpm install
-pnpm run build
-
-# 2. 複製並依實際部署路徑修改三份 .service 檔的 WorkingDirectory 與環境變數
-mkdir -p ~/.config/systemd/user
-cp study-notes-*.service ~/.config/systemd/user/
-# 編輯 ~/.config/systemd/user/study-notes-*.service，確認路徑與 IAI_ALLOWED_ORIGINS
-
-# 3. 啟用並啟動服務
-systemctl --user daemon-reload
-systemctl --user enable --now study-notes-bridge.service study-notes-web.service study-notes-gateway.service
-```
-
-若要對外公開，建議搭配 **Cloudflare Tunnel（`cloudflared`）** 將網域指向 `http://127.0.0.1:3000`，並在 `study-notes-bridge.service` 的 `IAI_ALLOWED_ORIGINS` 中加入您的正式網域。
-
----
-
-## 測試與開發指令
-
-本專案包含 **108 項自動化單元與整合測試**，涵蓋音訊切段、重複清洗、JSON／LaTeX 修復、斷點續跑、憑證遮蔽與跨學科管線驗證：
-
-```bash
-# 執行全部 108 項自動化測試（使用隔離的本地模擬伺服器，不消耗真實 API 額度）
+# Run all 109 automated tests (offline mock server, zero API cost)
 pnpm run test
-
-# 程式碼靜態檢查（oxlint）
-pnpm run lint
-
-# 正式環境建置
-pnpm run build
 ```
 
-### 離線模擬測試模式（不消耗 iAI 額度）
-
-若想在不花費真實 API 額度的情況下測試前端操作流程：
+### Offline Mock Mode (No API Quota Used)
 
 ```bash
-# 終端機 1：啟動本地模擬 iAI 伺服器（127.0.0.1:4174）
+# Terminal 1: Start local mock iAI server (127.0.0.1:4174)
 pnpm run mock
 
-# 終端機 2：啟動開發伺服器
+# Terminal 2: Start dev server
 pnpm run dev
 ```
 
-接著開啟 `http://localhost:3000/?testMode=1`，輸入測試用 Key `test-valid-key` 即可完整體驗流程。
+Open `http://localhost:3000/?testMode=1` and enter `test-valid-key` to test the full 6-step workflow offline.
 
 ---
 
-## 常見問題排解（FAQ）
+## 📄 License
 
-- **Q：驗證 API Key 出現 401 或 `budget_exceeded`？**  
-  A：請確認高科 iAI 後台的 API Key 是否有效且尚有可用額度；若額度用完，重設額度後可直接點選「續跑未完成重點」接著完成，不需重新轉錄。
-- **Q：為什麼需要同時啟動 `bridge` 與 `dev`？**  
-  A：瀏覽器無法直接執行 `ffmpeg` 切段，且直接從前端連線長耗時 LLM 容易受限於瀏覽器／代理逾時，因此透過本機 `bridge` 負責音訊轉碼、分段送出與心跳保活。
-- **Q：API Key 會被上傳或存進復原檔嗎？**  
-  A：不會。復原檔匯出與錯誤訊息皆經過白名單與金鑰遮蔽處理，完全不含 API Key，可安心保存或分享除錯。
-
----
-
-## 授權條款
-
-本專案以 [MIT License](./LICENSE) 開源釋出，任何人皆可自由使用、修改與散佈。
+Released under the [MIT License](./LICENSE). Free for personal study, modification, and open-source distribution.

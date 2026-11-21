@@ -44,9 +44,14 @@ export function decodeCheckpoint(value: string): StudyCheckpoint {
     Date.now() - job.savedAt > 7 * 24 * 60 * 60 * 1000 ||
     typeof job.filename !== 'string' ||
     job.filename.length > 512 ||
-    !['Furen-std', 'Furen-large', 'Furen-max', 'Furen-omni'].includes(
-      job.model,
-    ) ||
+    ![
+      'Nkust',
+      'Furen-omni',
+      'Furen-std',
+      'Furen-coder',
+      'Furen-large',
+      'Furen-max',
+    ].includes(job.model) ||
     !['summary', 'transcript'].includes(job.mode) ||
     typeof job.preference !== 'string' ||
     job.preference.length > 4000 ||

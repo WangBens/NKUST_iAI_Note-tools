@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Release tag to publish (e.g., v1.0.1)"
+        description: "Release tag to publish (e.g., v1.0.2)"
         required: true
-        default: "v1.0.1"
+        default: "v1.0.2"
 
 permissions:
   contents: write
@@ -96,16 +96,17 @@ jobs:
           body: |
             ## 知音筆記｜NKUST iAI Note Tools 跨平台桌面版 APP
 
-            > **專案初衷**：在老師課堂允許錄音的前提下，讓學生能透過自己的課堂錄音，安全串接國立高雄科技大學（NKUST）iAI 平台提供的語音辨識（`Asr`）與大型語言模型（`Furen` 系列），自動整理出結構清晰、含公式與重點複習的個人專屬學習筆記。
+            > **專案初衷**：如果老師上課允許錄音，學生就可以利用錄音串接學校提供的 AI 模型（高科 iAI `Asr` 與 `Nkust` / `Furen` 系列），整理成一份屬於自己的學習重點。
 
-            ### 📦 跨平台下載說明
-            - **Windows (x64)**：下載 `Setup.exe`（安裝版）或 `.zip`（免安裝綠色版，解壓縮即可執行）
-            - **macOS (Apple Silicon / Intel)**：下載 `.dmg` 或 `.zip`
+            ### 📦 跨平台桌面版 APP 下載
+            - **Windows (x64)**：下載 `Setup.exe`（標準安裝版）或 `.zip`（免安裝綠色版，解壓縮即可執行）
+            - **macOS (Apple Silicon `arm64` / Intel `x64`)**：下載 `.dmg` 或 `.zip`
             - **Linux (x64)**：下載 `.AppImage`（通用免安裝）或 `.deb`（Ubuntu / Debian 安裝包）
 
-            ### ✨ 本版亮點與版本更新（v1.0.1）
+            ### ✨ 本版亮點與版本更新（v1.0.2）
+            - **同步官方最新模型清單與計費標準**：新增 `Nkust` 與 `Furen-coder`，並更新 `Asr`（`whisper`）、`Furen-std`（`nemotron-3-super-120b`）、`Furen-max`（`nvidia-nemotron-3-ultra-550b-a55b`）等實際模型對應。
             - **首次啟動捷徑精靈**：安裝並首次開啟程式後，會彈出視窗詢問「是否要在桌面建立捷徑？」——選「是」建立於使用者桌面，選「否」則自動建立於程式安裝資料夾中（完整支援 Windows `.lnk`、macOS `.app` 符號連結與 Linux `.desktop` 啟動器）。
-            - **跨平台全支援**：同步自動化建置 Windows、macOS（arm64 / x64）、Linux（AppImage / deb）三大作業系統安裝包。
+            - **三平台正式打包發布**：同時提供 Windows、macOS、Linux 三大作業系統桌面應用程式下載。
             - **JSON 容錯與斷點續跑強化**：自動本地修復模型回傳漏冒號（如 `"body"> ...`）、中文引號與尾端空白註解物件，不額外消耗 Token 並放寬長錄音二分切分的容錯次數。
             - **零個資留存**：API Key 僅存於執行期記憶體，復原檔與錯誤報告皆自動遮蔽憑證。
           files: dist-release/*

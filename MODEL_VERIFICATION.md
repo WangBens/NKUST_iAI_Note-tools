@@ -1,36 +1,34 @@
-# 高科 iAI 模型與計費核對
+# 高科 iAI 模型與計費標準核對
 
-核對日期：2026-09-08（Asia/Taipei）
+核對日期：2026-11-21（Asia/Taipei）
 
 官方公開模型資料：<https://www.iai.nkust.edu.tw/iaibackend/api/admin/models>
 
-## 可確認資料
+---
 
-高科 iAI 公開模型清單可確認以下 API 別名與官方顯示計費。單位在官網介面寫成 `/tk`，未另外公開幣別或額度換算方式，因此 DEMO 不自行改寫成「元」或「每千 tokens」。
+## 高科 iAI 平台可用模型與計費標準
 
-| API 別名 | 類別 | 輸入計費 | 輸出計費 |
-| --- | --- | ---: | ---: |
-| `Asr` | 語音處理 | 1.0/tk | 1.0/tk |
-| `Furen-omni` | LLM | 0.1/tk | 0.2/tk |
-| `Furen-std` | LLM | 0.15/tk | 0.3/tk |
-| `Furen-large` | LLM | 0.2/tk | 0.4/tk |
-| `Furen-max` | LLM | 0.5/tk | 1.0/tk |
+以下清單依據高科 iAI 平台「可用模型與計費標準」頁面最新公告核對（單位為每 1M tokens）：
 
-`Asr` 的確是高科 iAI 公開列出的語音處理模型別名。不過公開欄位只寫語音識別功能，沒有出現 `Whisper`，因此目前只能確認「呼叫時使用 Asr」，不能以公開證據確認底層一定是 Whisper。
+| 模型別名 | 實際模型 | 類型 | 輸入計費 (Prompt) | 輸出計費 (Completion) | 本工具支援 |
+| --- | --- | --- | ---: | ---: | :---: |
+| `Asr` | `whisper` | 語音處理 (ASR & TTS) | 1/1M | 1/1M | ✅ 語音轉錄 |
+| `Nkust` | `Nkust` | 大型語言模型 (LLM) | 0.09/1M | 0.34/1M | ✅ 逐字稿校正與筆記整理 |
+| `Furen-omni` | `nemotron-omni-30b` | 大型語言模型 (LLM) | 0.1/1M | 0.2/1M | ✅ 逐字稿校正與筆記整理 |
+| `Furen-std` | `nemotron-3-super-120b` | 大型語言模型 (LLM) | 0.15/1M | 0.3/1M | ✅ 逐字稿校正與筆記整理（預設推薦） |
+| `Furen-coder` | `nemotron-3-super-120b` | 大型語言模型 (LLM) | 0.2/1M | 0.4/1M | ✅ 逐字稿校正與筆記整理 |
+| `Furen-large` | `nemotron-3-super-120b` | 大型語言模型 (LLM) | 0.2/1M | 0.4/1M | ✅ 逐字稿校正與筆記整理 |
+| `Furen-max` | `nvidia-nemotron-3-ultra-550b-a55b` | 大型語言模型 (LLM) | 0.5/1M | 1/1M | ✅ 逐字稿校正與筆記整理 |
+| `Speaker` | `s2-pro` | 語音處理 (ASR & TTS) | 1/1M | 1/1M | —（語音合成用） |
+| `Embedding` | `bge-m3-embedding` | 向量資料處理 (Embedding) | 0.003/1M | 0.01/1M | —（向量檢索用） |
+| `Furen-reranker` | `reranker` | 重排序模型 | 0.000001/1M | 0.000003/1M | —（檢索重排用） |
+| `Pic-large` | `flux2-klein` | 圖像生成 (生圖) | 1/1M | 1/1M | —（圖像生成用） |
+| `Pic-small` | `z-image` | 圖像生成 (生圖) | 1/1M | 1/1M | —（圖像生成用） |
 
-## 尚不能由高科 iAI 公開資料確認的對應
+---
 
-| 高科 iAI 別名 | 提供的底層對應 | 核對結論 |
-| --- | --- | --- |
-| `Furen-omni` | `nemotron-omni-30b` | NVIDIA 公開模型家族中有 Nemotron 3 Nano Omni 30B，但高科 iAI 公開清單未提供底層欄位，無法確認此別名對應。 |
-| `Furen-std` | `gemma-4-31b` | Google 公開有 Gemma 4 31B，但高科 iAI 公開清單未提供底層欄位，無法確認此別名對應。 |
-| `Furen-large` | `nemotron-3-super-120b` | NVIDIA 公開有 Nemotron 3 Super 120B，但高科 iAI 公開清單未提供底層欄位，無法確認此別名對應。 |
-| `Furen-max` | `nvidia-ultra-550b` | 未找到可核對的 NVIDIA 官方公開模型名稱；可能是校內部署名、尚未公開名稱或拼字差異，需向高科 iAI 管理端確認。 |
+## 呼叫說明
 
-外部官方模型資料：
-
-- NVIDIA Nemotron 3 Nano Omni：<https://docs.nvidia.com/nemo/automodel/latest/model-coverage/omni/nemotron-omni>
-- Google DeepMind Gemma 4：<https://deepmind.google/models/gemma/gemma-4/>
-- NVIDIA Nemotron 3 Super：<https://developer.nvidia.com/blog/introducing-nemotron-3-super-an-open-hybrid-mamba-transformer-moe-for-agentic-reasoning/>
-
-DEMO 只會把 `Asr` 或 Furen 別名送進高科 iAI API；畫面中的底層名稱只作核對註記，不會影響呼叫內容。
+- **語音轉錄階段**：固定呼叫高科 iAI 平台之 `Asr`（實際模型 `whisper`），由本機 `ffmpeg` 自動分段轉碼後逐段送出。
+- **逐字稿校正與重點整理階段**：使用者可於介面步驟 3 自由選擇 `Nkust`、`Furen-omni`、`Furen-std`、`Furen-coder`、`Furen-large` 或 `Furen-max`。
+- 本工具僅傳送官方別名至高科 iAI API；畫面顯示之實際模型名稱與計費資訊皆同步對應高科 iAI 官方公告。

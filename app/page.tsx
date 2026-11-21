@@ -151,6 +151,13 @@ type WebMcpContext = {
 
 const MODELS: ModelOption[] = [
   {
+    alias: 'Nkust',
+    proposedBase: 'Nkust',
+    input: 0.09,
+    output: 0.34,
+    use: '高科校內專屬語言模型',
+  },
+  {
     alias: 'Furen-omni',
     proposedBase: 'nemotron-omni-30b',
     input: 0.1,
@@ -159,10 +166,17 @@ const MODELS: ModelOption[] = [
   },
   {
     alias: 'Furen-std',
-    proposedBase: 'gemma-4-31b',
+    proposedBase: 'nemotron-3-super-120b',
     input: 0.15,
     output: 0.3,
     use: '穩定、均衡的文字整理',
+  },
+  {
+    alias: 'Furen-coder',
+    proposedBase: 'nemotron-3-super-120b',
+    input: 0.2,
+    output: 0.4,
+    use: '程式設計與技術課程',
   },
   {
     alias: 'Furen-large',
@@ -173,7 +187,7 @@ const MODELS: ModelOption[] = [
   },
   {
     alias: 'Furen-max',
-    proposedBase: 'nvidia-ultra-550b',
+    proposedBase: 'nvidia-nemotron-3-ultra-550b-a55b',
     input: 0.5,
     output: 1,
     use: '最高階整理與推理',
@@ -456,7 +470,7 @@ export default function Home() {
           name: 'configure_recording_output',
           title: '設定錄音輸出方式',
           description:
-            '設定輸出逐字稿或學習重點，並選擇用來校正逐字稿與整理重點的高科 iAI Furen 模型；不會讀取或設定 API Key。',
+            '設定輸出逐字稿或學習重點，並選擇用來校正逐字稿與整理重點的高科 iAI 語言模型（Nkust / Furen 系列）；不會讀取或設定 API Key。',
           inputSchema: {
             type: 'object',
             properties: {
@@ -478,7 +492,7 @@ export default function Home() {
               values.model !== undefined &&
               !MODELS.some((item) => item.alias === values.model)
             )
-              throw new Error('model 不是可用的 Furen 別名。');
+              throw new Error('model 不是可用的高科 iAI 語言模型別名。');
             if (
               values.customPrompt !== undefined &&
               typeof values.customPrompt !== 'string'
@@ -1425,8 +1439,8 @@ export default function Home() {
                 <em>一份真正好讀的筆記</em>
               </h1>
               <p className="hero-copy">
-                上傳錄音，先由 <strong>Asr</strong> 轉錄，再由你選擇的 Furen
-                模型校正繁體中文與英文專有名詞，並可完整整理學習重點。
+                上傳錄音，先由 <strong>Asr</strong> 轉錄，再由你選擇的高科 iAI
+                模型（Nkust / Furen 系列）校正繁體中文與英文專有名詞，並可完整整理學習重點。
               </p>
               <div className="hero-pills">
                 <span>
@@ -1654,7 +1668,7 @@ export default function Home() {
               <p className="step-kicker">步驟 3 / 6</p>
               <h2>這次想得到什麼？</h2>
               <p className="step-lead">
-                Asr 產生初稿後，逐字稿與學習重點都會使用你選擇的 Furen
+                Asr 產生初稿後，逐字稿與學習重點都會使用你選擇的高科 iAI 語言模型
                 模型校正錯字。
               </p>
               <RadioGroup
@@ -2091,7 +2105,7 @@ export default function Home() {
           )}
         </div>
       </section>
-      <footer>高科 iAI · Asr 語音轉錄 · Furen 逐字稿校正與學習重點整理</footer>
+      <footer>高科 iAI · Asr 語音轉錄 · Nkust / Furen 逐字稿校正與學習重點整理</footer>
     </main>
   );
 }

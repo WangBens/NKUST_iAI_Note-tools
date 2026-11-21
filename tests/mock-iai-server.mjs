@@ -56,8 +56,10 @@ const server = http.createServer(async (request, response) => {
     sendJson(response, 200, {
       data: [
         { id: 'Asr' },
+        { id: 'Nkust' },
         { id: 'Furen-omni' },
         { id: 'Furen-std' },
+        { id: 'Furen-coder' },
         { id: 'Furen-large' },
         { id: 'Furen-max' },
       ],

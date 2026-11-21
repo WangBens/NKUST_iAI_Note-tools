@@ -261,7 +261,14 @@ test('production modules contain no subject whitelist, canned lecture, filename 
   assert.match(COMPLETE_NOTES_PROMPT, /聊天/);
   assert.match(REVIEW_NOTES_PROMPT, /逐一閱讀每個(?:原始)?單位/);
 });
-for (const model of ['Furen-std', 'Furen-large', 'Furen-max', 'Furen-omni'])
+for (const model of [
+  'Nkust',
+  'Furen-omni',
+  'Furen-std',
+  'Furen-coder',
+  'Furen-large',
+  'Furen-max',
+])
   test('generic pipeline contract for ' + model, async () => {
     let calls = 0;
     const c = cache();

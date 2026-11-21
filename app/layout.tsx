@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: '知音筆記｜高科 iAI 錄音學習助手',
-  description: '使用高科 iAI Asr 與 Furen 系列模型，將錄音轉成逐字稿與 Markdown 重點。',
+  description: '使用高科 iAI Asr 與校內語言模型（Nkust / Furen 系列），將錄音轉成逐字稿與 Markdown 學習重點。',
   icons: {
     icon: [{ url: '/favicon.png?v=202609092009', type: 'image/png', sizes: '80x80' }],
     shortcut: '/favicon.png?v=202609092009',

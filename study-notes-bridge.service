@@ -1,0 +1,32 @@
+[Unit]
+Description=NKUST iAI study notes audio processor
+After=network-online.target
+
+[Service]
+Type=simple
+# 請依據實際 Ubuntu 部署路徑修改 WorkingDirectory
+WorkingDirectory=/opt/study_notes_nkust_iAI
+Environment=IAI_BRIDGE_PORT=4175
+# 若透過 Cloudflare 對外公開，請在下方加入您的正式域名，例如 https://notes.yourdomain.com
+Environment=IAI_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
+Environment=IAI_MAX_AUDIO_JOBS=2
+Environment=IAI_FFMPEG_TIMEOUT_MS=900000
+ExecStart=/usr/bin/node --experimental-strip-types local/iai-bridge.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+UMask=0077
+CPUQuota=150%
+MemoryHigh=2G
+MemoryMax=3G
+MemorySwapMax=256M
+TasksMax=96
+LimitNOFILE=2048
+TimeoutStopSec=20
+KillMode=mixed
+
+[Install]
+WantedBy=default.target

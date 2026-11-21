@@ -1,0 +1,18 @@
+[Unit]
+Description=NKUST iAI study notes port 3000 gateway
+After=network-online.target study-notes-web.service study-notes-bridge.service
+Wants=study-notes-web.service study-notes-bridge.service
+
+[Service]
+Type=simple
+# 請依據實際 Ubuntu 部署路徑修改 WorkingDirectory
+WorkingDirectory=/opt/study_notes_nkust_iAI
+Environment=STUDY_PORT=3000
+Environment=STUDY_WEB_PORT=3001
+Environment=STUDY_HOSTS=127.0.0.1
+ExecStart=/usr/bin/node local/ubuntu-gateway.mjs
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

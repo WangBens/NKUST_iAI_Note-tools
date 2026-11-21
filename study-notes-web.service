@@ -1,0 +1,27 @@
+[Unit]
+Description=NKUST iAI study notes web application
+After=network-online.target
+
+[Service]
+Type=simple
+# 請依據實際 Ubuntu 部署路徑修改 WorkingDirectory
+WorkingDirectory=/opt/study_notes_nkust_iAI
+Environment=STUDY_NODE_SERVER=1
+Environment=PORT=3001
+ExecStart=/usr/bin/pnpm exec vinext start --hostname 127.0.0.1 --port 3001
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+UMask=0077
+CPUQuota=100%
+MemoryHigh=768M
+MemoryMax=1G
+MemorySwapMax=256M
+TasksMax=96
+LimitNOFILE=4096
+
+[Install]
+WantedBy=default.target

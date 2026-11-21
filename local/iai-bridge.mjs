@@ -5,7 +5,7 @@ import http from "node:http";
 import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 
-import ffmpegPath from "ffmpeg-static";
+import ffmpegStatic from "ffmpeg-static";
 import { requestChatResponse } from "./upstream-chat.mjs";
 import {
   cleanTranscriptRepetition,
@@ -13,6 +13,9 @@ import {
   mergeTranscriptSegments,
   redactApiSecrets,
 } from "../lib/iai-workflow.ts";
+
+const ffmpegPath = process.env.FFMPEG_BIN || ffmpegStatic;
+
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.IAI_BRIDGE_PORT || 4175);
@@ -641,48 +644,67 @@ async function handleTranscription(request, response, origin) {
   }
 }
 
-const server = http.createServer(async (request, response) => {
-  const origin = request.headers.origin || "";
-  const url = new URL(request.url || "/", `http://${HOST}:${PORT}`);
-  if (request.method === "OPTIONS") {
-    response.writeHead(204, responseHeaders(origin));
-    response.end();
-    return;
-  }
-  if (request.method === "GET" && url.pathname === "/health") {
-    sendJson(
-      response,
-      200,
-      {
-        ok: true,
-        max_audio_bytes: MAX_AUDIO_BYTES,
-        segment_seconds: SEGMENT_SECONDS,
-        ffmpeg: Boolean(ffmpegPath),
-      },
-      origin,
-    );
-    return;
-  }
-  if (
-    request.method === "POST" &&
-    url.pathname === "/v1/audio/transcriptions"
-  ) {
-    await handleTranscription(request, response, origin);
-    return;
-  }
-  if (request.method === "POST" && url.pathname === "/v1/chat/completions") {
-    await handleChatCompletion(request, response, origin);
-    return;
-  }
-  sendJson(response, 404, { error: { message: "Not found" } }, origin);
-});
+export function startBridgeServer({
+  port = PORT,
+  host = HOST,
+} = {}) {
+  const server = http.createServer(async (request, response) => {
+    const origin = request.headers.origin || "";
+    const url = new URL(request.url || "/", `http://${host}:${port}`);
+    if (request.method === "OPTIONS") {
+      response.writeHead(204, responseHeaders(origin));
+      response.end();
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/health") {
+      sendJson(
+        response,
+        200,
+        {
+          ok: true,
+          max_audio_bytes: MAX_AUDIO_BYTES,
+          segment_seconds: SEGMENT_SECONDS,
+          ffmpeg: Boolean(ffmpegPath),
+        },
+        origin,
+      );
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/v1/audio/transcriptions"
+    ) {
+      await handleTranscription(request, response, origin);
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/v1/chat/completions") {
+      await handleChatCompletion(request, response, origin);
+      return;
+    }
+    sendJson(response, 404, { error: { message: "Not found" } }, origin);
+  });
 
-server.listen(PORT, HOST, () => {
-  process.stdout.write(
-    `IAI local audio bridge listening on http://${HOST}:${PORT}\n`,
-  );
-});
-
-for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, () => server.close(() => process.exit(0)));
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, host, () => {
+      const actualPort = server.address()?.port ?? port;
+      process.stdout.write(
+        `IAI local audio bridge listening on http://${host}:${actualPort}\n`,
+      );
+      resolve({ server, host, port: actualPort });
+    });
+  });
 }
+
+const isDirectRun =
+  process.argv[1] &&
+  import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/"));
+
+if (isDirectRun) {
+  startBridgeServer().then(({ server }) => {
+    for (const signal of ["SIGINT", "SIGTERM"]) {
+      process.on(signal, () => server.close(() => process.exit(0)));
+    }
+  });
+}
+

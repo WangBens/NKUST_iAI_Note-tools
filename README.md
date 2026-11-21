@@ -81,7 +81,46 @@ flowchart TD
 
 ---
 
-## 安裝與本機啟動教學
+## 桌面版 APP（Windows / macOS / Linux）下載與打包
+
+本專案已整合 **Electron** 桌面應用程式容器（`electron/main.mjs`），啟動桌面版 APP 時，程式會在背景自動拉起內建的 `Bridge`（音訊轉碼與 LLM 代理）、`Web Server` 與 `Gateway`，並開啟原生桌面圖形化視窗，**使用者無需手動開啟終端機或安裝 Node.js**。
+
+### 1. 直接從 GitHub Releases 下載安裝（一般使用者推薦）
+
+前往本儲存庫的 [**GitHub Releases**](https://github.com/WangBens/NKUST_iAI_Note-tools/releases) 頁面，依作業系統下載對應檔案：
+
+- **Windows（64-bit）**：
+  - `NKUST-iAI-Note-Tools-1.0.0-win-x64.zip`（免安裝綠色版，解壓縮後雙擊 `NKUST iAI Note Tools.exe` 即可直接啟動 UI 視窗與內建音訊服務）
+- **macOS（Apple Silicon / Intel）**：
+  - `NKUST iAI Note Tools-1.0.0-arm64.dmg` / `.zip`
+- **Linux（Ubuntu / Debian / 通用）**：
+  - `NKUST iAI Note Tools-1.0.0.AppImage` / `.deb`
+
+### 2. 開發者本機啟動與自行打包桌面版 APP
+
+若您想在本機以桌面視窗模式啟動或自行打包安裝檔：
+
+```bash
+# 先建置前端並直接開啟 Electron 桌面 APP 視窗
+pnpm run electron:dev
+
+# 若已建置過 dist，可直接秒開桌面視窗
+pnpm run electron:start
+
+# 打包當前作業系統的桌面安裝檔（輸出至 release/ 目錄）
+pnpm run electron:build
+```
+
+### 3. 手機與平板（iOS / Android）跨裝置操作方式
+
+由於錄音轉碼需要執行 `ffmpeg`，且長錄音 LLM 推論需維持長連線心跳，手機與平板建議採用以下兩種方式操作（網頁介面已具備 RWD 響應式排版）：
+
+1. **區網／Tailscale／Cloudflare Tunnel 連線（推薦）**：於電腦或伺服器啟動本服務（或開啟桌面版 APP），手機透過瀏覽器連線至該主機網址，並可點擊瀏覽器選單 **「加入主畫面（Add to Home Screen）」** 作為獨立全螢幕 Web App 操作。
+2. **Capacitor 原生封裝**：若已架設固定後端網址，可透過 `@capacitor/cli` 將前端封裝為 Android APK 或 iOS IPA，指向您的 Gateway 端點即可。
+
+---
+
+## 安裝與本機啟動教學（命令列／網頁開發模式）
 
 ### 步驟 1：下載專案並安裝相依套件
 

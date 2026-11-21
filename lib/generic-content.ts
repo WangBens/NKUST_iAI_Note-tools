@@ -64,12 +64,27 @@ function extractOuterJsonObject(value: string) {
   return clean;
 }
 
+function normalizeMalformedJsonSyntax(value: string) {
+  return value
+    // Repair "body"> **... or "body" > "**... where the colon after "body" was omitted
+    .replace(/"body"\s*>\s*"?/g, '"body": "> ')
+    // Repair "body:**... where the closing quote of "body" and opening quote of the value were merged
+    .replace(/"(id|title|body|academicText|kind):\s*/g, '"$1": "')
+    // Repair Chinese closing quote 」 used instead of " before }]
+    .replace(/」\s*(\}\s*\])/g, '"$1')
+    // Strip trailing phantom section stub with commentary block at the end of sections array
+    .replace(
+      /,\s*\{\s*"id"\s*:\s*""[\s\S]*?(?:\]\s*\}|\}\s*)$/i,
+      ']}',
+    );
+}
+
 export type FilteredUnit = SourceUnit & { kind: 'study' | 'aside' | 'noise' };
 export function parseFilter(
   value: string,
   units: SourceUnit[],
 ): FilteredUnit[] {
-  const clean = extractOuterJsonObject(value);
+  const clean = normalizeMalformedJsonSyntax(extractOuterJsonObject(value));
   let result;
   try {
     result = JSON.parse(clean);
@@ -113,7 +128,7 @@ export function sourceUnits(text: string, prefix: string): SourceUnit[] {
     .map((s, i) => ({ id: prefix + 'u' + i, text: s }));
 }
 export function parseLearningReceipt(value: string): LearningReceipt {
-  const clean = extractOuterJsonObject(value);
+  const clean = normalizeMalformedJsonSyntax(extractOuterJsonObject(value));
   const escaped = clean
     .replace(
       /(?<!\\)\\(?:beta|begin|big|bmatrix|frac|forall|nu|neq|nabla|neg|notin|rho|right|rightarrow|rangle|rbrace|tan|text|theta|tau|tfrac|times)\b/g,
@@ -124,11 +139,13 @@ export function parseLearningReceipt(value: string): LearningReceipt {
   try {
     parsed = JSON.parse(escaped);
   } catch {
-    const cleanedTail = escaped
-      .replace(/"\s*\n?<\/(?:section|sections|coverage|json)>[\s\S]*$/i, '"}]}')
-      .replace(/"""\s*\}\s*\}\s*\]\s*\}\s*$/, '"}]}')
-      .replace(/"\}"\s*\n?\s*\}\s*\]\s*\}\s*$/, '"}]}')
-      .replace(/"body"\s*:\s*(?=[^"\s{[\d\-tfn])/g, '"body": "');
+    const cleanedTail = normalizeMalformedJsonSyntax(
+      escaped
+        .replace(/"\s*\n?<\/(?:section|sections|coverage|json)>[\s\S]*$/i, '"}]}')
+        .replace(/"""\s*\}\s*\}\s*\]\s*\}\s*$/, '"}]}')
+        .replace(/"\}"\s*\n?\s*\}\s*\]\s*\}\s*$/, '"}]}')
+        .replace(/"body"\s*:\s*(?=[^"\s{[\d\-tfn])/g, '"body": "'),
+    );
     parsed = JSON.parse(jsonrepair(cleanedTail));
   }
   if (
@@ -148,30 +165,39 @@ export function parseLearningReceipt(value: string): LearningReceipt {
     )
   )
     throw new Error('單位分類格式不完整');
-  if (
-    parsed.sections.some(
-      (s: LearningSection) =>
-        !s ||
-        ['id', 'title', 'body'].some(
-          (k) => typeof s[k as 'id' | 'title' | 'body'] !== 'string',
-        ) ||
-        (s.unitIds !== undefined &&
-          (!Array.isArray(s.unitIds) ||
-            s.unitIds.some((id) => typeof id !== 'string'))),
-    )
-  )
+  const validSections = parsed.sections
+    .filter((s: any) => {
+      if (!s || typeof s !== 'object') return false;
+      const hasId = typeof s.id === 'string' && s.id.trim().length > 0;
+      const hasTitle = typeof s.title === 'string' && s.title.trim().length > 0;
+      const hasBody = typeof s.body === 'string' && s.body.trim().length > 0;
+      return (hasId || hasTitle) && hasBody;
+    })
+    .map((s: any) => {
+      const id = typeof s.id === 'string' ? s.id : '';
+      const title =
+        typeof s.title === 'string' && s.title.trim()
+          ? s.title
+          : typeof s[''] === 'string' && s[''].trim()
+            ? s['']
+            : id;
+      return {
+        id: id.trim() ? id : title,
+        title: title.trim() ? title : id,
+        unitIds: Array.isArray(s.unitIds)
+          ? s.unitIds.filter((uid: unknown) => typeof uid === 'string')
+          : [],
+        body: typeof s.body === 'string' ? s.body : '',
+      };
+    });
+  if (!validSections.length && parsed.sections.length > 0)
     throw new Error('主題欄位不完整');
   return {
     coverage: parsed.coverage.map((u: UnitCoverage) => ({
       id: u.id,
       kind: u.kind,
     })),
-    sections: parsed.sections.map((s: LearningSection) => ({
-      id: s.id,
-      title: s.title,
-      unitIds: Array.isArray(s.unitIds) ? s.unitIds : [],
-      body: s.body,
-    })),
+    sections: validSections,
   };
 }
 const processHeading =

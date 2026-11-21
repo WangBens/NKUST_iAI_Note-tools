@@ -225,7 +225,7 @@ export async function summarizeCompleteStudyNotes(
   const newCalls = new Map<number, number>();
   const failures = new Map<number, number>();
   const allowance = (i: number) =>
-    Math.max(8, (state.work?.[i + ':root']?.units?.length ?? 1) * 3 + 8);
+    Math.max(18, (state.work?.[i + ':root']?.units?.length ?? 1) * 4 + 12);
   const checkpoint = () => {
     counts(state);
     options.onCheckpoint?.();
@@ -324,7 +324,7 @@ export async function summarizeCompleteStudyNotes(
         if (response === undefined) {
           if (
             (newCalls.get(index) ?? 0) >= allowance(index) ||
-            (failures.get(index) ?? 0) >= 10
+            (failures.get(index) ?? 0) >= 18
           )
             throw new Error(
               '此段尚未完整，已達本次錯誤修復上限；進度保留，可續跑' +
@@ -403,7 +403,7 @@ export async function summarizeCompleteStudyNotes(
         if (response === undefined) {
           if (
             (newCalls.get(index) ?? 0) >= allowance(index) ||
-            (failures.get(index) ?? 0) >= 10
+            (failures.get(index) ?? 0) >= 18
           )
             throw new Error(
               '此段尚未完整，已達本次錯誤修復上限；回覆與已完成進度均保留，請續跑補齊或調整模型' +

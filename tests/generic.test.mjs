@@ -805,3 +805,30 @@ test('necessary child tasks can exceed eight calls without being mistaken for fa
   assert.equal(hasCompleteStudyNotes(c), true);
   assert.equal(c.recovery.complete, c.recovery.total);
 });
+
+test('parseLearningReceipt locally repairs missing colon before blockquote and trailing phantom commentary sections', async () => {
+  const broken = `{
+  "coverage": [{"id": "s0:u8", "kind": "study"}],
+  "sections": [
+    {
+      "id": "嵌入式系統學習重點",
+      "title": "",
+      "unitIds": ["s0:u8"],
+      "body"> **核心觀念：** 學習嵌入式系統需具備除錯耐心；必須自行查閱原廠手冊、親自撰寫與除錯程式碼，才能建立堅實基礎。"
+    },
+    {
+      "id": "",
+      "_commentary_about_the_above_section": "missing",
+      "_commentary_end___"
+    }
+  ]
+}`;
+  const parsed = parseLearningReceipt(broken);
+  const checked = await validateReceipt(parsed, [
+    { id: 's0:u8', text: '嵌入式系統除錯需要耐心與查閱原廠手冊。' },
+  ]);
+  assert.equal(checked.sections.length, 1);
+  assert.equal(checked.sections[0].title, '嵌入式系統學習重點');
+  assert.match(checked.sections[0].body, /核心觀念/);
+});
+

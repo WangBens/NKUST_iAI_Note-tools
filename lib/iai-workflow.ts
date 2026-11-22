@@ -1,5 +1,7 @@
-export const MAX_FILE_BYTES = 30 * 1024 * 1024;
-export const MAX_FILE_MB = 30;
+import { toTraditionalStudyTextSync } from './study-text.ts';
+
+export const MAX_FILE_BYTES = 100 * 1024 * 1024;
+export const MAX_FILE_MB = 100;
 // Keep each LLM request comfortably below common reverse-proxy timeouts. A
 // 5,419-character transcript took 83 seconds in a live Furen-std test; smaller
 // chunks also make completed work resumable after a transient failure.
@@ -379,6 +381,202 @@ export function assertCompleteChatResponse(payload: unknown) {
     throw new Error('LLM 未提供完整內容；已完成的分段已保留，請續跑。');
 }
 
+function convertFencedLatexBlocks(value: string) {
+  const lines = value.split('\n');
+  const out: string[] = [];
+  let i = 0;
+  let normalFence: string | null = null;
+
+  const flushLatexSegment = (segLines: string[]) => {
+    const cleaned = segLines
+      .map((l) =>
+        l
+          .replace(/\x09(?=ext\b|frac\b|heta\b|au\b|imes\b)/g, '\\t')
+          .replace(/\x0c(?=rac\b|orall\b)/g, '\\f')
+          .replace(/\x08(?=egin\b|eta\b|ar\b)/g, '\\b')
+          .trim(),
+      )
+      .filter(Boolean);
+    if (!cleaned.length) return;
+    const bodyLines = cleaned.filter(
+      (l) => !/^\\(?:begin|end)\{(?:aligned|align\*?|array)\}/.test(l),
+    );
+    const allProseText =
+      bodyLines.length > 0 &&
+      bodyLines.every((l) => /\\text\{[^}]+\}/.test(l) && !/\\(?:frac|int|sum|sqrt|partial|infty)\b/.test(l));
+    if (allProseText) {
+      for (const l of bodyLines) {
+        const texts = [...l.matchAll(/\\text\{([^}]*)\}/g)]
+          .map((m) => m[1].trim())
+          .filter(Boolean);
+        if (texts.length) {
+          out.push(`- ${texts.join(' ')}`);
+        }
+      }
+      return;
+    }
+    const fixedMath = cleaned
+      .map((l) =>
+        l
+          .replace(/^\\begin\{align\*?\}/, '\\begin{aligned}')
+          .replace(/^\\end\{align\*?\}/, '\\end{aligned}')
+          .replace(/(?<!\\)\\$/, '\\\\'),
+      )
+      .join('\n');
+    out.push('$$', fixedMath, '$$');
+  };
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const fenceMatch = line.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
+    if (normalFence) {
+      if (
+        fenceMatch &&
+        fenceMatch[1][0] === normalFence[0] &&
+        fenceMatch[1].length >= normalFence.length &&
+        !fenceMatch[2].trim()
+      ) {
+        normalFence = null;
+      }
+      out.push(line);
+      i++;
+      continue;
+    }
+    if (fenceMatch) {
+      const lang = fenceMatch[2].trim().toLowerCase();
+      if (/^(?:latex|tex|math)$/.test(lang)) {
+        i++;
+        let seg: string[] = [];
+        while (i < lines.length) {
+          const cur = lines[i];
+          const innerFence = cur.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
+          if (innerFence) {
+            const innerLang = innerFence[2].trim().toLowerCase();
+            flushLatexSegment(seg);
+            seg = [];
+            i++;
+            if (/^(?:latex|tex|math)$/.test(innerLang)) {
+              continue;
+            }
+            break;
+          }
+          seg.push(cur);
+          i++;
+        }
+        flushLatexSegment(seg);
+        continue;
+      } else {
+        normalFence = fenceMatch[1];
+        out.push(line);
+        i++;
+        continue;
+      }
+    }
+    out.push(line);
+    i++;
+  }
+  return out.join('\n');
+}
+
+function cleanProseLine(line: string) {
+  let s = line
+    .replace(/\x09(?=ext\b|frac\b|heta\b|au\b|imes\b|o\b|riangle\b|herefore\b)/g, '\\t')
+    .replace(/\x0c(?=rac\b|orall\b)/g, '\\f')
+    .replace(/\x08(?=egin\b|eta\b|ar\b|inom\b|ig\b|matrix\b|oxed\b)/g, '\\b')
+    .replace(/\x0d(?=ight\b|ightarrow\b|ho\b|angle\b|brace\b)/g, '\\r')
+    .replace(/\t+/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&gt;/gi, '>')
+    .replace(/&lt;/gi, '<')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/(?:[<>＜＞]\s*){4,}/g, ' > ')
+    .replace(/-\s*\\{2,}\s*$/, '')
+    .replace(/([。！？.])\s*\bnor\s*$/i, '$1')
+    .replace(/^i(?=[\u4e00-\u9fff])/, '')
+    .replace(/（\*\*[^）]*?(?:while"\}|而"\})[^）]*?）/g, '');
+
+  const trimmed = s.trim();
+  if (
+    !trimmed ||
+    /^<\/?(?:section|sections|coverage|json|body|unit)>$/i.test(trimmed) ||
+    /^[（(]?此區塊已在.*完整呈現.*[)）]?$/.test(trimmed) ||
+    /^已於上方產出.*$/.test(trimmed) ||
+    /^\\(?:begin|end)\{(?:itemize|enumerate)\}$/.test(trimmed) ||
+    /^or$/i.test(trimmed)
+  ) {
+    return '';
+  }
+
+  s = s
+    .replace(/^\s*\\item\s+/, '- ')
+    .replace(/^erromagnetic interference\b/i, '- 電磁干擾 Electromagnetic Interference')
+    .replace(/^fault\s+注入測試/i, '- 故障注入測試（Fault Injection）')
+    .replace(/^or\s+(?=[\u4e00-\u9fffA-Za-z*])/i, '- ');
+
+  // Apply ASR typo restoration outside inline code spans
+  s = s
+    .split(/(`+[^`]*`+)/g)
+    .map((part, idx) =>
+      idx % 2
+        ? part
+        : part
+            .replace(/Serial\s+Porn/gi, 'Serial Port')
+            .replace(/Porn3\s*port|Porn3/gi, 'Port 3 (P3)')
+            .replace(/GPIO8051/g, '8051 GPIO')
+            .replace(/錫標/g, '旗標')
+            .replace(/軟體清楚/g, '軟體清除')
+            .replace(/硬體清楚/g, '硬體清除')
+            .replace(/中斷空能器/g, '中斷控制器')
+            .replace(/中算控制器/g, '微控制器')
+            .replace(/DataShip/g, 'Datasheet')
+            .replace(/Extranal\s+Intrush|Extranal\s+Interrupt/gi, 'External Interrupt')
+            .replace(/Risk[-‑]5/gi, 'RISC-V')
+            .replace(/中段(?=服務|訊號|機|向量|浮沉|來源|請求|控制)/g, '中斷')
+            .replace(/通斷|動斷|middle斷/g, '中斷')
+            .replace(/押位劃分/g, '位元劃分')
+            .replace(/「牽套」\s*\(nesting\)\s*或\s*「巢壯」|「牽套」|「巢壯」|巢壯/g, '巢狀')
+            .replace(/老師特別提鐘/g, '老師特別提醒')
+            .replace(/Powerline\s+Documentation/gi, 'Powerline Communication')
+            .replace(/Intercept\s+Return/gi, 'Interrupt Return')
+            .replace(/被\s*interromp\s*的/gi, '被中斷的')
+            .replace(/一點基因\s*comparación/gi, '單一架構比較')
+            .replace(/高est/g, '最高')
+            .replace(/低est\s*priority/gi, '最低優先權')
+            .replace(/低est/g, '最低')
+            .replace(/芯片/g, '晶片'),
+    )
+    .join('');
+
+  // Convert pure-prose bullet display math `- $$\text{A} = \text{B}$$` into `- **A**：B`
+  const proseFormulaBullet = s.match(
+    /^(\s*[-*+•]\s+)\$\$\\text\{([^\\}]+)\}\s*=\s*\\text\{([^\\}]+)\}\$\$\s*(.*)$/,
+  );
+  if (proseFormulaBullet) {
+    const [, prefix, lhs, rhs, tail] = proseFormulaBullet;
+    s = `${prefix.replace(/[*+•]/, '-')}**${lhs.trim()}**：${rhs.trim()}${tail ? ' ' + tail.trim() : ''}`;
+  } else {
+    // Convert single-line display math inside a bullet item `- $$...$$` to inline math `- $...$`
+    s = s.replace(
+      /^(\s*[-*+•]\s+)\$\$\s*(.+?)\s*\$\$(\s*.*)$/,
+      (_m, prefix, tex, tail) => `${prefix.replace(/[*+•]/, '-')}$${tex}$${tail}`,
+    );
+  }
+
+  // Split inline concatenated lists (`\- ` or `* **...**` or `。* `)
+  if (!s.includes('$')) {
+    s = s
+      .replace(/([：:。；])\s*\\-\s+/g, '$1\n- ')
+      .replace(/^\s*\*\s+/, '- ')
+      .replace(/([：:。；])\s*\*\s+(?=\*\*|[\u4e00-\u9fffA-Za-z])/g, '$1\n- ')
+      .replace(/\s+(?<!\*)\*(?!\*)(?=[。，；！）)])/g, '')
+      .replace(/([。！）)])\s*(?<!\*)\*(?!\*)\s*$/gm, '$1');
+  }
+
+  s = s.replace(/^(\s*)[*+•]\s+/, '$1- ');
+  return s;
+}
+
 export function normalizeNotesMarkdown(value: string) {
   let fence: string | null = null;
   let mathOpen = false;
@@ -387,57 +585,144 @@ export function normalizeNotesMarkdown(value: string) {
       .replace(/\\{2,}(?=[A-Za-z,;!:{}])/g, '\\')
       .replace(/\\partional\b/g, '\\partial');
   let layoutFence: string | null = null;
-  const layout = stripThinking(value)
+  const preCleaned = stripThinking(value)
+    .replace(
+      /(?:\r?\n\s*<\/?(?:section|sections|coverage|json|body|unit)>)+(?:\r?\n\s*`{3,})?\s*$/gi,
+      '',
+    )
+    .replace(
+      /\\begin\{align(?:ed)?\}[\s\S]*?(?:\\end\{align(?:ed)?\}){2,}[ \t]*/g,
+      '',
+    )
+    .replace(/^(\s{0,3}`{3,})([^\n`A-Za-z0-9_-].*)$/gm, '$1\n$2');
+  const layout = convertFencedLatexBlocks(
+    preCleaned
+      .split('\n')
+      .map((line) => {
+        const marker = line.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
+        if (marker) {
+          if (!layoutFence) layoutFence = marker[1];
+          else if (
+            marker[1][0] === layoutFence[0] &&
+            marker[1].length >= layoutFence.length &&
+            !marker[2].trim()
+          )
+            layoutFence = null;
+          return line;
+        }
+        // Some providers double-escape text inside a valid JSON response. Repair
+        // layout escapes outside code; do not touch \nu, \neq, or code strings.
+        return layoutFence ? line : line.replace(/\\n(?![A-Za-z])/g, '\n');
+      })
+      .join('\n'),
+  );
+  const rawLines = stripMetaRuleAnnouncements(stripMarkdownFence(layout))
     .split('\n')
-    .map((line) => {
-      const marker = line.match(/^\s{0,3}(`{3,}|~{3,})/);
-      if (marker) {
-        if (!layoutFence) layoutFence = marker[1];
-        else if (
-          marker[1][0] === layoutFence[0] &&
-          marker[1].length >= layoutFence.length
-        )
-          layoutFence = null;
-        return line;
-      }
-      // Some providers double-escape text inside a valid JSON response. Repair
-      // layout escapes outside code; do not touch \nu, \neq, or code strings.
-      return layoutFence ? line : line.replace(/\\n(?![A-Za-z])/g, '\n');
-    })
-    .join('\n');
-  return stripMetaRuleAnnouncements(stripMarkdownFence(layout))
-    .split('\n')
-    .map((line) => {
-      const marker = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+    .flatMap((line) => {
+      const marker = line.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
       if (marker) {
         if (!fence) fence = marker[1];
-        else if (marker[1][0] === fence[0] && marker[1].length >= fence.length)
+        else if (
+          marker[1][0] === fence[0] &&
+          marker[1].length >= fence.length &&
+          !marker[2].trim()
+        )
           fence = null;
-        return line;
+        return [line];
       }
-      if (fence) return line;
+      if (fence) return [line];
       // An omitted-topic declaration is editorial metadata, not a study point.
       // Remove it only from notes, never from the verbatim transcript or code.
-      if (/(?:本段|本節|錄音)未涉及/.test(line)) return '';
+      if (/(?:本段|本節|錄音)未涉及/.test(line)) return [];
       if (line.trim() === '$$') {
         mathOpen = !mathOpen;
-        return line;
+        return [line];
       }
-      const singleLineDisplay =
-        !mathOpen && line.match(/^\s*\$\$\s*(.+?)\s*\$\$\s*$/);
-      if (singleLineDisplay)
-        return '$$\n' + unescapeCommands(singleLineDisplay[1]) + '\n$$';
-      const normalized = mathOpen
-        ? unescapeCommands(line)
-        : line.replace(
-            /(\${1,2})(.+?)\1/g,
-            (_whole, delimiter, math) =>
-              delimiter + unescapeCommands(math) + delimiter,
-          );
-      return normalized.replace(/^#\s+/, '## ');
-    })
-    .join('\n')
-    .trim();
+      if (!mathOpen) {
+        line = cleanProseLine(line);
+        if (!line.trim()) return [''];
+      }
+      const expanded = (!mathOpen ? line.split('\n') : [line]).map((subLine) => {
+        const singleLineDisplay =
+          !mathOpen && subLine.match(/^\s*\$\$\s*(.+?)\s*\$\$\s*$/);
+        if (singleLineDisplay)
+          return '$$\n' + unescapeCommands(singleLineDisplay[1]) + '\n$$';
+        const normalized = mathOpen
+          ? unescapeCommands(subLine)
+          : subLine.replace(
+              /(\${1,2})(.+?)\1/g,
+              (_whole, delimiter, math) =>
+                delimiter + unescapeCommands(math) + delimiter,
+            );
+        return normalized.replace(/^#\s+/, '## ');
+      });
+      return expanded;
+    });
+
+  // Deduplicate identical bullet lines within the same contiguous bullet block,
+  // remove blank lines between consecutive table rows, and repair escaped pipes in tables.
+  const deduped: string[] = [];
+  const seenBulletsInBlock = new Set<string>();
+  let tableCols = 0;
+  for (let i = 0; i < rawLines.length; i++) {
+    let line = rawLines[i];
+    const trimmed = line.trim();
+    if (!trimmed) {
+      // Skip blank line if sandwiched between two table rows
+      const prev = deduped.at(-1)?.trim() ?? '';
+      let nextNonEmpty = '';
+      for (let j = i + 1; j < rawLines.length; j++) {
+        if (rawLines[j].trim()) {
+          nextNonEmpty = rawLines[j].trim();
+          break;
+        }
+      }
+      if (
+        prev.startsWith('|') &&
+        prev.endsWith('|') &&
+        nextNonEmpty.startsWith('|') &&
+        nextNonEmpty.endsWith('|')
+      ) {
+        continue;
+      }
+      seenBulletsInBlock.clear();
+      tableCols = 0;
+      deduped.push(line);
+      continue;
+    }
+    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+      const countPipes = (s: string) =>
+        s
+          .replace(/\\\|/g, '')
+          .split('|')
+          .slice(1, -1).length;
+      if (!tableCols) {
+        tableCols = countPipes(trimmed);
+      } else if (countPipes(trimmed) < tableCols && trimmed.includes('\\|')) {
+        line = line.replace(/\\\|/g, '|');
+      }
+    } else {
+      tableCols = 0;
+    }
+    if (trimmed.startsWith('- ')) {
+      const bulletKey = toTraditionalStudyTextSync(trimmed)
+        .replace(/\s+/g, '')
+        .toLowerCase();
+      if (seenBulletsInBlock.has(bulletKey)) {
+        continue;
+      }
+      seenBulletsInBlock.add(bulletKey);
+    } else {
+      seenBulletsInBlock.clear();
+    }
+    deduped.push(line);
+  }
+  return toTraditionalStudyTextSync(
+    deduped
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim(),
+  );
 }
 
 export function assertReadableNotes(value: string) {

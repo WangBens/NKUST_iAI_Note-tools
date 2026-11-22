@@ -20,7 +20,7 @@ University lectures often deliver a large amount of information in a short time,
 ## ✨ Full Feature Overview
 
 1. **Automatic Large-Audio Segmentation & Transcoding (Bypass Upload & Timeout Limits)**
-   - Supports `MP3`, `M4A`, and `WAV` files up to **30 MB** per file.
+   - Supports `MP3`, `M4A`, and `WAV` files up to **100 MB** per file.
    - Uses built-in `ffmpeg-static` to automatically transcode long recordings into mono 16 kHz / 32 kbps MP3 segments (3 minutes each) and send them sequentially to NKUST iAI `Asr` (backed by `whisper`), preventing upstream `413 Request Entity Too Large` errors and reverse-proxy timeouts.
 2. **ASR Repetition Loop & Boundary Overlap Cleanup**
    - Automatically detects and removes repetitive speech-recognition hallucination loops and duplicate sentences across segment boundaries.

@@ -25,7 +25,7 @@ const IAI_ASR_URL =
 const IAI_CHAT_URL =
   process.env.IAI_CHAT_URL ||
   "https://www.iai.nkust.edu.tw/aihub/v1/chat/completions";
-const MAX_AUDIO_BYTES = 30 * 1024 * 1024;
+const MAX_AUDIO_BYTES = 100 * 1024 * 1024;
 const MAX_REQUEST_BYTES = MAX_AUDIO_BYTES + 1024 * 1024;
 const MAX_CHAT_REQUEST_BYTES = 2 * 1024 * 1024;
 const CHAT_HEARTBEAT_MS = Math.max(

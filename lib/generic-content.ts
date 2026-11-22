@@ -131,10 +131,10 @@ export function parseLearningReceipt(value: string): LearningReceipt {
   const clean = normalizeMalformedJsonSyntax(extractOuterJsonObject(value));
   const escaped = clean
     .replace(
-      /(?<!\\)\\(?:beta|begin|big|bmatrix|frac|forall|nu|neq|nabla|neg|notin|rho|right|rightarrow|rangle|rbrace|tan|text|theta|tau|tfrac|times)\b/g,
+      /(?<!\\)(?:\\{2})*\\(?:beta|begin|big|Big|bigl|bigr|bmatrix|binom|bot|bullet|boxed|bar|bf|frac|forall|fbox|nu|neq|ne|nabla|neg|notin|ni|not|nonumber|newline|rho|right|rightarrow|Rightarrow|rangle|rbrace|rceil|rfloor|rm|tan|text|textbf|textit|textrm|texttt|theta|vartheta|tau|tfrac|times|to|top|tilde|triangle|therefore)\b/g,
       (m) => '\\' + m,
     )
-    .replace(/(?<!\\)\\(?=[^"\\/bfnrtu]|u(?![\da-fA-F]{4}))/g, '\\\\');
+    .replace(/(?<!\\)(?:\\{2})*\\(?=[^"\\/bfnrtu]|u(?![\da-fA-F]{4}))/g, '$&\\');
   let parsed;
   try {
     parsed = JSON.parse(escaped);
@@ -201,7 +201,9 @@ export function parseLearningReceipt(value: string): LearningReceipt {
   };
 }
 const processHeading =
-  /^(?:來源(?:說明|資訊|依據|檔案)?|整理狀態|匯出狀態|未完成(?:範圍|清單)?|編輯(?:說明|紀錄)|校核報告|課堂(?:閒聊|聊天)|講者(?:閒聊|聊天))$/;
+  /^(?:來源(?:說明|資訊|依據|檔案)?|整理狀態|匯出狀態|未完成(?:範圍|清單)?|編輯(?:說明|紀錄)|校核報告|課堂(?:閒聊|聊天)|講者(?:閒聊|聊天)|前置知識補充.*|逐字稿.*誤解.*)$/;
+const templateWrapperHeading =
+  /^(?:前置檢索工具|正文教學區|考前實戰總複習區|單元導覽|一、前處理原則|二、文件結構|三、排版與語言風格規範)(?:[（(].*[)）])?$/;
 export function validateEducationalContent(value: string) {
   if (
     /sourceUnits|courseContext|contextBefore|contextAfter|(?:此段落|本文|本筆記)僅(?:根據|依據)|未添加外部推論|課本(?:曾誤用|方法導致|計算方法存在)/i.test(
@@ -338,6 +340,9 @@ export async function cleanLearningBody(value: string, _topicId = '') {
         .trim();
       if (processHeading.test(title)) {
         skipDepth = node.depth;
+        continue;
+      }
+      if (templateWrapperHeading.test(title)) {
         continue;
       }
       if (skipDepth && node.depth > skipDepth) continue;

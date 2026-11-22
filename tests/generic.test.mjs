@@ -947,4 +947,112 @@ test('new v3 handout layout composes guide, tables, pitfalls, exam predictions, 
   assert.match(fullMulti, /P = IV/);
 });
 
+test('all 9 handout quality optimizations: unpack stuffed guide, fix LaTeX/non-MD tags, extract bilingual term table, strip prompt echoes, unify lists', async () => {
+  const seg = {
+    note: '',
+    repairs: [],
+    sections: [
+      {
+        topicId: 's0:guide',
+        title: '這堂課在講什麼',
+        body: [
+          '## 微控制器與開源 CPU 架構 完整重點講義',
+          '## 這堂課在講什麼',
+          '本單元探討錫標與 Risk-5、DataShip、Serial Porn 與中斷空能器。',
+          '**核心主線：掌握底層架構。**',
+          '### 建議閱讀順序',
+          '1. 理解錫標設定與軟體清楚',
+          '### 核心主軸',
+          '- $$\\text{軟體清楚} = \\text{CPU 執行指令將 Flag 清為 0}$$',
+          '## 時間軸索引',
+          '| 時間區段 | 主要內容 |',
+          '| --- | --- |',
+          '| 00:00~02:00 | 開源專案介紹 |',
+          '| 14:00~end | 總結 |',
+          '## 符號與單位',
+          '| 符號 | 意義 | 單位 |',
+          '| --- | --- | --- |',
+          '| Flag | 錫標，表示硬體狀態 | 無單位（bit） |',
+          '| SRAM | 靜態記憶體 | KB |',
+          '## 前置檢索工具（動態選用，有對應內容才產出）',
+          '已於上方產出時間軸索引與符號與單位表。',
+          '## 正文教學區',
+          '### 中斷空能器 (NVIC)',
+          '#### 子標題層級測試',
+          '\\begin{align}\\\\\\text{重複測試}\\end{align}\\end{aligned}\\end{aligned}```latex',
+          '\\begin{aligned}',
+          '&\\text{當多個中斷同時發生時} \\',
+          '&\\quad \\text{NVIC 按預設優先級排序}',
+          '\\end{aligned}',
+          '```latex',
+          '\\begin{aligned}',
+          '&\\text{當多個中斷同時發生時} \\',
+          '&\\quad \\text{NVIC 按預設優先級排序}',
+          '\\end{aligned}',
+          '```以上機制保護低優先級任務。nor',
+          '\\begin{itemize}',
+          '\\item 第一項列表。* **第二項**：同列串接。* **第三項**：尾部星號。*',
+          '\\end{itemize}',
+          '## 前置知識補充（針對逐字稿中的誤解或不清晰表述)',
+          '「大便你做字化電影」→ 雜音誤認。',
+          '## 常見失分點與迷思',
+          '1. **誤以為 Risk-5 是具体芯片。** → 錯誤！應為開源指令集架构。',
+          '## 前置檢索工具（動態選用，有對應內容才產出）',
+          '(此區塊已在第五部分完整呈現，依規則避免重複)',
+          '## 老師可能會考的考題',
+          '### Observational Questions',
+          '**問題**：什麼是 NMI？ \t\t\t Answer:不可屏蔽中斷。**計算/實作題****問題**：比較優權？Answer:步驟：① 第一步 IRQ0 > ＜ ＜ ＜ ＜ ＞ ＞ ＞ ＞ 鍵盤 ② 第二步。**自我檢查** - [ ] 能說出差異',
+          '## 考前自我檢查',
+          '- 我能[ ] 能說出 NMI 與 INTR 的差異',
+          '</section>',
+          '</sections>',
+          '</json>',
+          '```',
+        ].join('\n'),
+      },
+    ],
+  };
+
+  const composed = composeReaderBody([seg]);
+  const md = buildMarkdown({
+    filename: '嵌入式測試.m4a',
+    transcript: '逐字稿無時間戳',
+    notes: composed,
+    generatedAt: '2026/11/22',
+  });
+  assertReadableNotes(md);
+  await assertNotesMath(md);
+
+  // 1. No prompt instruction echoes or discarded raw quote sections
+  assert.doesNotMatch(
+    md,
+    /前置檢索工具|正文教學區|此區塊已在第五部分|已於上方產出|前置知識補充|大便你做字化電影/,
+  );
+  // 2. No leaked XML/JSON tags or trailing .nor
+  assert.doesNotMatch(md, /<\/section>|<\/sections>|<\/json>|\.nor\b|。nor\b/);
+  // 3. Heading depth capped at ### (no #### for regular chapter subheadings)
+  assert.doesNotMatch(md, /^#### /m);
+  // 4. ASR typos restored & Simplified Chinese converted to Traditional
+  assert.doesNotMatch(md, /錫標|軟體清楚|Serial Porn|DataShip|Risk-5|中斷空能器|具体芯片/);
+  assert.match(md, /旗標/);
+  assert.match(md, /軟體清除/);
+  assert.match(md, /Serial Port/);
+  assert.match(md, /Datasheet/);
+  assert.match(md, /RISC-V/);
+  assert.match(md, /中斷控制器/);
+  assert.match(md, /具體晶片/);
+  // 5. Bilingual term table extracted from unitless symbols
+  assert.match(md, /^## 核心專有名詞對照表$/m);
+  assert.match(md, /\| 旗標 \| Flag \|/);
+  assert.match(md, /^## 符號與單位$/m);
+  assert.match(md, /\| SRAM \|/);
+  // 6. Crammed exam questions and self-check normalized
+  assert.doesNotMatch(md, /Observational Questions/);
+  assert.match(md, /^### 觀念題$/m);
+  assert.match(md, /^### 計算\/實作題$/m);
+  assert.match(md, /^- 我能說出 NMI 與 INTR 的差異$/m);
+  assert.doesNotMatch(md, /我能\[ \]/);
+});
+
+
 

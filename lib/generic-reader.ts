@@ -1,4 +1,4 @@
-import { assertNotesMath } from './iai-workflow.ts';
+import { assertNotesMath, normalizeNotesMarkdown } from './iai-workflow.ts';
 import type { ResilientCache, SegmentResult } from './study-resilient.ts';
 export const READER_VERSION = 'reader-20261122-learning-handout-v3';
 export const REVIEW_VERSION = 'source-audit-20261017-handout-v1';
@@ -16,6 +16,50 @@ const SPECIAL_TITLES = [
   '全篇複習整理',
   '課程提醒',
 ];
+
+function normalizeSpecialTitle(raw: string): string {
+  const clean = raw
+    .replace(/^\*\*|\*\*$/g, '')
+    .replace(/^[一二三四五六七八九十\d]+[、.)）]\s*/, '')
+    .replace(/[：:]\s*$/, '')
+    .trim();
+  if (/^(?:這堂課在講[什甚]麼|課程導覽|單元導覽)$/.test(clean))
+    return '這堂課在講什麼';
+  if (/^(?:內容索引|時間軸索引|時間索引)$/.test(clean)) return '內容索引';
+  if (/^(?:符號與單位|符號與單位表|符號表)$/.test(clean)) return '符號與單位';
+  if (
+    /^(?:核心專有名詞對照表|專有名詞對照表|中英文專有名詞對照表|名詞對照表|符號[／/]名詞表)$/.test(
+      clean,
+    )
+  )
+    return '核心專有名詞對照表';
+  if (
+    /^(?:總整理表|公式總整理|指令[／/]語法總整理|核心架構總整理)$/.test(clean)
+  )
+    return '總整理表';
+  if (/^(?:常見失分點與迷思|常見失分點|易錯觀念與迷思)$/.test(clean))
+    return '常見失分點與迷思';
+  if (/^(?:老師可能會考的考題|可能會考的考題|預測考題)$/.test(clean))
+    return '老師可能會考的考題';
+  if (/^(?:考前自我檢查|自我檢查)$/.test(clean)) return '考前自我檢查';
+  return clean;
+}
+
+function isDiscardedHeading(title: string): boolean {
+  return /^(?:前置知識補充|逐字稿中的誤解|語音辨識錯字|風險投資視角[：:].*RISC-V|風險投資視角[：:].*Risk-5)/i.test(
+    title.trim(),
+  );
+}
+
+function isWrapperHeading(title: string): boolean {
+  const t = title.trim();
+  return (
+    /^(?:前置檢索工具|正文教學區|考前實戰總複習區|單元導覽|一、前處理原則|二、文件結構|三、排版與語言風格規範)(?:[（(].*[)）])?$/.test(
+      t,
+    ) ||
+    /完整重點講義$/.test(t)
+  );
+}
 
 export function sourceResultsDone(cache: ResilientCache) {
   const state = cache.recovery;
@@ -48,14 +92,19 @@ export function sourceResultsDone(cache: ResilientCache) {
 }
 
 function demoteHeadings(value: string) {
+  const normalized = normalizeNotesMarkdown(value);
   let fence: string | null = null;
-  return value
+  return normalized
     .split('\n')
     .map((line) => {
-      const marker = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+      const marker = line.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
       if (marker) {
         if (!fence) fence = marker[1];
-        else if (marker[1][0] === fence[0] && marker[1].length >= fence.length)
+        else if (
+          marker[1][0] === fence[0] &&
+          marker[1].length >= fence.length &&
+          !marker[2].trim()
+        )
           fence = null;
         return line;
       }
@@ -65,15 +114,38 @@ function demoteHeadings(value: string) {
       return line.replace(
         /^(#{1,6})\s+/,
         (_match, hashes) =>
-          '#'.repeat(hashes.length <= 2 ? 3 : Math.min(4, hashes.length)) + ' ',
+          '#'.repeat(hashes.length <= 4 ? 3 : 4) + ' ',
       );
     })
     .join('\n')
     .replace(/\n{3,}/g, '\n\n');
 }
 
+function parseTableCells(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\||\|$/g, '')
+    .split('|')
+    .map((c) => c.trim());
+}
+
+function isHeaderRow(line: string, expectedCols: number): boolean {
+  const cells = parseTableCells(line);
+  if (cells.length < 2) return false;
+  const first = cells[0].replace(/[*`\s]/g, '');
+  const second = (cells[1] ?? '').replace(/[*`\s]/g, '');
+  return (
+    /^(?:時間區段|符號|中文|中文專有名詞|專有名詞|主題|項目|必會觀念|核心觀念)$/.test(
+      first,
+    ) &&
+    /^(?:主要內容|意義|英文|英文對照|內容|說明|複習提示|重點摘要)$/.test(second) &&
+    cells.length === expectedCols
+  );
+}
+
 function mergeMarkdownTables(bodies: string[], defaultHeader: string) {
   let header = defaultHeader;
+  const expectedCols = parseTableCells(defaultHeader).length;
   let sep =
     '|' +
     defaultHeader
@@ -82,37 +154,48 @@ function mergeMarkdownTables(bodies: string[], defaultHeader: string) {
       .map(() => ' --- ')
       .join('|') +
     '|';
-  const rows: string[] = [];
-  const rowKeys = new Set<string>();
+  const rowMap = new Map<string, string>();
   const extras: string[] = [];
   for (const body of bodies) {
     for (const rawLine of body.split('\n')) {
-      const line = rawLine.trim();
+      let line = rawLine.trim();
       if (!line) continue;
       if (line.startsWith('|') && line.endsWith('|')) {
         if (/^\|[\s:-]+(?:\|[\s:-]+)+\|$/.test(line)) {
-          sep = line;
+          if (parseTableCells(line).length === expectedCols) sep = line;
           continue;
         }
+        // Repair escaped pipes `\|` when column count is short
         if (
-          /時間區段|符號|中文|主題|必會觀念|核心觀念|主要內容|白話說明|使用時機/.test(
-            line,
-          ) &&
-          rows.length === 0
+          parseTableCells(line).length < expectedCols &&
+          line.includes('\\|')
         ) {
-          header = line;
+          line = line.replace(/\\\|/g, '|');
+        }
+        if (isHeaderRow(line, expectedCols)) {
+          if (rowMap.size === 0) header = line;
           continue;
         }
-        const key = line.replace(/\s+/g, '').toLowerCase();
-        if (!rowKeys.has(key)) {
-          rowKeys.add(key);
-          rows.push(line);
+        const cells = parseTableCells(line);
+        if (cells.length < 2) continue;
+        // Deduplicate by primary key in the first column
+        const rawFirst = cells[0]
+          .replace(/\*\*|`/g, '')
+          .split(/[（(\/／]/)[0]
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, '');
+        const key = rawFirst || line.replace(/\s+/g, '').toLowerCase();
+        const existing = rowMap.get(key);
+        if (!existing || line.length > existing.length) {
+          rowMap.set(key, `| ${cells.join(' | ')} |`);
         }
         continue;
       }
       if (!extras.includes(rawLine)) extras.push(rawLine);
     }
   }
+  const rows = [...rowMap.values()];
   const parts: string[] = [];
   if (rows.length) parts.push([header, sep, ...rows].join('\n'));
   if (extras.length) parts.push(extras.join('\n').trim());
@@ -121,18 +204,29 @@ function mergeMarkdownTables(bodies: string[], defaultHeader: string) {
 
 function mergeNumberedList(bodies: string[]) {
   const items: string[] = [];
-  const seen = new Set<string>();
+  const seenKeys = new Set<string>();
   const extras: string[] = [];
   for (const body of bodies) {
     for (const rawLine of body.split('\n')) {
       const line = rawLine.trim();
       if (!line) continue;
-      const m = line.match(/^(?:\d+[.、)]\s*|-\s*)(.+)$/);
+      if (/^\*\*老師特別提醒.*易失分/.test(line)) continue;
+      const m = line.match(/^(?:\d+[.、)]\s*|[-*]\s*)(.+)$/);
       if (m) {
-        const text = m[1].trim();
-        const key = text.replace(/\s+/g, '').toLowerCase();
-        if (text && !seen.has(key)) {
-          seen.add(key);
+        let text = m[1]
+          .trim()
+          .replace(/\s*→\s*(?:錯誤|不一定)[！!]\s*/g, ' ')
+          .replace(/\*\*([^*]+?)\*\*\s*[：:]\s*/g, (_w, t) => {
+            const cleanT = t.trim().replace(/[。.]$/, '');
+            return `**${cleanT}。** `;
+          });
+        // Extract bold title for concept deduplication
+        const boldMatch = text.match(/^\*\*([^*]+)\*\*/);
+        const titleKey = (boldMatch ? boldMatch[1] : text.slice(0, 18))
+          .replace(/[。.，,、\s]/g, '')
+          .toLowerCase();
+        if (text && !seenKeys.has(titleKey)) {
+          seenKeys.add(titleKey);
           items.push(text);
         }
         continue;
@@ -140,9 +234,10 @@ function mergeNumberedList(bodies: string[]) {
       if (!extras.includes(rawLine)) extras.push(rawLine);
     }
   }
+  const capped = items.slice(0, 12);
   const parts: string[] = [];
-  if (items.length)
-    parts.push(items.map((item, i) => `${i + 1}. ${item}`).join('\n'));
+  if (capped.length)
+    parts.push(capped.map((item, i) => `${i + 1}. ${item}`).join('\n'));
   if (extras.length) parts.push(extras.join('\n').trim());
   return parts.join('\n\n');
 }
@@ -155,21 +250,127 @@ function mergeSelfCheckList(bodies: string[]) {
       const line = rawLine.trim();
       if (!line) continue;
       const m = line.match(/^(?:[-*]\s*|\d+[.、)]\s*)(.+)$/);
-      const text = (m ? m[1] : line).trim();
-      const normalized = text.startsWith('我能') ? text : `我能${text}`;
-      const key = normalized.replace(/\s+/g, '').toLowerCase();
-      if (text && !seen.has(key)) {
+      let text = (m ? m[1] : line)
+        .trim()
+        .replace(/^(?:我能\s*)?(?:\[[ xX]?\]\s*)?(?:我能|能)?\s*/, '')
+        .replace(/[（(]?(?:注|註|例如)[：:][^）)]*(?:口語|誤認為|為公字)[^）)]*[）)]?/g, '')
+        .trim();
+      if (!text) continue;
+      const normalized = `我能${text}`;
+      const key = normalized
+        .replace(/[\s？?。.，,]/g, '')
+        .slice(0, 18)
+        .toLowerCase();
+      if (!seen.has(key)) {
         seen.add(key);
         items.push(`- ${normalized}`);
       }
     }
   }
-  return items.join('\n');
+  return items.slice(0, 8).join('\n');
+}
+
+function mergeExamBodies(bodies: string[]) {
+  const categoryOrder = ['觀念題', '比較題', '計算/實作題', '綜合應用題'];
+  const categories = new Map<string, string[]>();
+  const seenQuestions = new Set<string>();
+
+  for (const rawBody of bodies) {
+    // Strip leaked self-check tail inside exam questions
+    const withoutSelfCheck = rawBody.replace(
+      /\*\*(?:考前)?自我檢查\*\*[\s\S]*$/i,
+      '',
+    );
+    // Expand inline crammed categories, questions, answers, and circled steps
+    const expanded = withoutSelfCheck
+      .replace(/(?:[<>＜＞]\s*){4,}/g, ' > ')
+      .replace(
+        /(?:^|\s+|[。！）)])(?:#{2,4}\s*|\*{2,4})Observational Questions\*{0,4}\s*/gi,
+        '\n### 觀念題\n',
+      )
+      .replace(
+        /(?:^|\s+|[。！）)])(?:#{2,4}\s*|\*{2,4})Comparison Questions\*{0,4}\s*/gi,
+        '\n### 比較題\n',
+      )
+      .replace(
+        /(?:^|\s+|[。！）)])(?:#{2,4}\s*|\*{2,4})(?:Calculation Questions|計算\s*[/／]\s*實作題|計算題|實作題)\*{0,4}\s*/gi,
+        '\n### 計算/實作題\n',
+      )
+      .replace(
+        /(?:^|\s+|[。！）)])(?:#{2,4}\s*|\*{0,4})(?:Comprehensive Questions|綜合應用題)\*{2,4}\s*/gi,
+        '\n### 綜合應用題\n',
+      )
+      .replace(
+        /^#{2,4}\s*比較題\s*[（(]續[)）]\s*$/gm,
+        '### 比較題',
+      )
+      .replace(/\*{0,4}問題\*{2,4}[：:]\s*/g, '\n**題目：** ')
+      .replace(/\*{0,4}題目[：:]\*{2,4}\s*/g, '\n**題目：** ')
+      .replace(
+        /(?:\*\*Answer\*\*|Answer)[：:]\s*/gi,
+        '\n- **作答要點：** ',
+      )
+      .replace(
+        /(?:^|\n)\s*\*\*作答要點[：:]\*\*\s*/g,
+        '\n- **作答要點：** ',
+      )
+      .replace(/\s*([①②③④⑤⑥])\s*/g, '\n  $1 ');
+
+    let currentCat = '觀念題';
+    const currentLines: string[] = [];
+    const flushLines = () => {
+      const text = currentLines.join('\n').trim();
+      currentLines.length = 0;
+      if (!text) return;
+      const key = text.replace(/\s+/g, '').slice(0, 30).toLowerCase();
+      if (seenQuestions.has(key)) return;
+      seenQuestions.add(key);
+      const list = categories.get(currentCat) ?? [];
+      list.push(text);
+      categories.set(currentCat, list);
+    };
+
+    for (const rawLine of expanded.split('\n')) {
+      const line = rawLine.trimEnd();
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const catMatch = trimmed.match(/^#{2,4}\s*(.+)$/);
+      if (catMatch) {
+        flushLines();
+        const catName = catMatch[1].replace(/^\*\*|\*\*$/g, '').trim();
+        if (/比較/.test(catName)) currentCat = '比較題';
+        else if (/計算|實作/.test(catName)) currentCat = '計算/實作題';
+        else if (/綜合|應用/.test(catName)) currentCat = '綜合應用題';
+        else currentCat = '觀念題';
+        continue;
+      }
+      if (
+        /^\*\*題目[：:]\*\*/.test(trimmed) &&
+        currentLines.some((l) => /^\*\*題目[：:]\*\*/.test(l.trim()))
+      ) {
+        flushLines();
+      }
+      currentLines.push(line);
+    }
+    flushLines();
+  }
+
+  const out: string[] = [];
+  for (const cat of [
+    ...categoryOrder,
+    ...[...categories.keys()].filter((k) => !categoryOrder.includes(k)),
+  ]) {
+    const items = categories.get(cat);
+    if (!items?.length) continue;
+    out.push(`### ${cat}\n\n${items.join('\n\n')}`);
+  }
+  return out.join('\n\n');
 }
 
 function mergeCourseGuideBodies(bodies: string[]) {
   if (bodies.length <= 1) return bodies.join('\n\n');
   const introParagraphs: string[] = [];
+  const coreLines: string[] = [];
   const introSeen = new Set<string>();
   const orderSteps: string[] = [];
   const orderSeen = new Set<string>();
@@ -220,6 +421,8 @@ function mergeCourseGuideBodies(bodies: string[]) {
         section = 'core';
         continue;
       }
+      // Skip accidental duplicate headings inside intro
+      if (/^#{1,4}\s+/.test(line)) continue;
       if (section === 'order') {
         const m = line.match(/^(?:\d+[.、)]\s*|[-*]\s*)(.+)$/);
         const text = (m ? m[1] : line).trim();
@@ -229,7 +432,18 @@ function mergeCourseGuideBodies(bodies: string[]) {
           orderSteps.push(text);
         }
       } else if (section === 'core') {
-        const key = line.replace(/\s+/g, '').toLowerCase();
+        // Deduplicate core items by leading concept token
+        const conceptKey = line
+          .replace(/^[-*]\s*/, '')
+          .replace(/\*\*|\$/g, '')
+          .split(/[=：:（(→]/)[0]
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, '');
+        const key =
+          conceptKey.length >= 2 && conceptKey.length <= 24
+            ? conceptKey
+            : line.replace(/\s+/g, '').toLowerCase();
         if (!coreSeen.has(key)) {
           coreSeen.add(key);
           coreItems.push(rawLine);
@@ -238,7 +452,17 @@ function mergeCourseGuideBodies(bodies: string[]) {
         const key = line.replace(/\s+/g, '').toLowerCase();
         if (!introSeen.has(key)) {
           introSeen.add(key);
-          introParagraphs.push(line);
+          if (/^\*\*核心主線[：:]/.test(line)) {
+            coreLines.push(
+              line
+                .replace(/^\*\*核心主線[：:]\s*/, '')
+                .replace(/\*\*$/, '')
+                .replace(/[。.]$/, '')
+                .trim(),
+            );
+          } else {
+            introParagraphs.push(line);
+          }
         }
       }
     }
@@ -254,11 +478,14 @@ function mergeCourseGuideBodies(bodies: string[]) {
 
   const parts: string[] = [];
   if (introParagraphs.length) parts.push(introParagraphs.join('\n\n'));
+  if (coreLines.length) {
+    parts.push(`**核心主線：${coreLines.join('；')}。**`);
+  }
   if (orderSteps.length) {
     parts.push(
       '### 建議閱讀順序\n\n' +
         orderSteps
-          .slice(0, 3)
+          .slice(0, 4)
           .map((s, i) => `${i + 1}. ${s}`)
           .join('\n'),
     );
@@ -392,9 +619,10 @@ function sectionOrder(title: string) {
       return 0;
     case '內容索引':
       return 1;
-    case '符號與單位':
     case '核心專有名詞對照表':
       return 2;
+    case '符號與單位':
+      return 3;
     case '總整理表':
       return 10;
     case '常見失分點與迷思':
@@ -412,19 +640,175 @@ function sectionOrder(title: string) {
   }
 }
 
+const KNOWN_TERM_DEFAULTS: Record<
+  string,
+  { zh: string; en: string; desc: string }
+> = {
+  flag: {
+    zh: '旗標',
+    en: 'Flag',
+    desc: '暫存器中用來表示硬體運算或事件狀態的特定位元（0 或 1）',
+  },
+  vector: {
+    zh: '中斷向量',
+    en: 'Interrupt Vector',
+    desc: 'CPU 響應中斷時用來查詢並跳轉至對應 ISR 的記憶體入口位址',
+  },
+  isr: {
+    zh: '中斷服務常式',
+    en: 'Interrupt Service Routine (ISR)',
+    desc: '中斷觸發後 CPU 暫停主程式並跳轉執行的專屬事件處理函式',
+  },
+  prioritylevel: {
+    zh: '中斷優先權等級',
+    en: 'Priority Level',
+    desc: '多個中斷同時請求時，決定誰先被服務及是否可搶佔的階層設定',
+  },
+  irq: {
+    zh: '中斷請求',
+    en: 'Interrupt Request (IRQ)',
+    desc: '週邊設備向中斷控制器或 CPU 發出服務請求的硬體訊號線',
+  },
+  nmi: {
+    zh: '不可屏蔽中斷',
+    en: 'Non-Maskable Interrupt (NMI)',
+    desc: '最高優先權且無法透過軟體指令關閉的硬體中斷，用於重大故障處理',
+  },
+  intr: {
+    zh: '可屏蔽中斷請求',
+    en: 'Maskable Interrupt Request (INTR)',
+    desc: '經由中斷控制器整合、可透過軟體指令開啟或遮罩的一般週邊中斷',
+  },
+  dpu: {
+    zh: '資料處理單元',
+    en: 'Data Processing Unit (DPU)',
+    desc: '分擔 CPU 資料搬移、加解密、格式轉換或網路儲存加速的專用硬體模組',
+  },
+  'i/o': {
+    zh: '輸入輸出介面',
+    en: 'Input/Output (I/O)',
+    desc: 'CPU 與外部週邊設備交換控制訊號與資料的埠位或記憶體映射介面',
+  },
+  plc: {
+    zh: '可程式邏輯控制器',
+    en: 'Programmable Logic Controller (PLC)',
+    desc: '專為工業自動化環境設計、具備高抗干擾與模組化特性的可程式控制系統',
+  },
+  uart: {
+    zh: '通用非同步收發傳輸器',
+    en: 'Universal Asynchronous Receiver/Transmitter (UART)',
+    desc: '嵌入式系統常用的序列通訊介面，於傳送或接收完成時可觸發中斷',
+  },
+  gpio: {
+    zh: '通用輸入輸出',
+    en: 'General Purpose Input/Output (GPIO)',
+    desc: '可由軟體配置為數位輸入、輸出或邊緣觸發外部中斷的晶片腳位',
+  },
+  ip: {
+    zh: '矽智財核心',
+    en: 'Intellectual Property Core (IP Core)',
+    desc: '晶片設計中可重複授權與整合的邏輯電路或控制器功能模組',
+  },
+  poc: {
+    zh: '概念驗證',
+    en: 'Proof of Concept (PoC)',
+    desc: '在正式量產或完整佈局前，用以驗證核心理論與功能可行性的初步實作',
+  },
+  usb: {
+    zh: '通用序列匯流排',
+    en: 'Universal Serial Bus (USB)',
+    desc: '微控制器與電腦主機或外部裝置進行高速資料傳輸的標準通訊介面',
+  },
+};
+
+function separateSymbolAndTermBodies(symbolBodies: string[]) {
+  const unitRows: string[] = [];
+  const termRows: string[] = [];
+  for (const body of symbolBodies) {
+    for (const rawLine of body.split('\n')) {
+      const line = rawLine.trim();
+      if (!line.startsWith('|') || !line.endsWith('|')) continue;
+      if (/^\|[\s:-]+(?:\|[\s:-]+)+\|$/.test(line)) continue;
+      if (isHeaderRow(line, 3)) continue;
+      const cells = parseTableCells(line);
+      if (cells.length !== 3) {
+        unitRows.push(line);
+        continue;
+      }
+      const [c1, c2, c3] = cells;
+      if (/^(?:無單位|有\s*[/／]\s*無|[-—])/.test(c3)) {
+        const lookupKey = c1.toLowerCase().replace(/\s+/g, '');
+        const preset = KNOWN_TERM_DEFAULTS[lookupKey];
+        if (preset) {
+          termRows.push(`| ${preset.zh} | ${preset.en} | ${preset.desc} |`);
+        } else {
+          const parenMatch = c2.match(/^([A-Za-z0-9\s/-]+)[（(]([^）)]+)[）)]$/);
+          if (parenMatch) {
+            const enFull = parenMatch[1].trim();
+            const zhName = parenMatch[2].trim();
+            const note = c3.replace(/^無單位\s*[（(]?|[）)]$/g, '').trim();
+            termRows.push(
+              `| ${zhName} | ${enFull} (${c1}) | ${note || zhName} |`,
+            );
+          } else {
+            const parts = c2.split(/[，,]/);
+            const zhName = parts[0]?.trim() || c1;
+            const desc = parts.slice(1).join('，').trim() || c2;
+            termRows.push(`| ${zhName} | ${c1} | ${desc} |`);
+          }
+        }
+      } else {
+        unitRows.push(line);
+      }
+    }
+  }
+  return { unitRows, termRows };
+}
+
 export function composeReaderBody(results: SegmentResult[]) {
   const groups = new Map<string, { title: string; bodies: string[] }>();
   for (const result of results)
     for (const section of (result.sections ?? []).flatMap(splitHandoutBlocks)) {
-      const key = section.title
+      const normTitle = normalizeSpecialTitle(section.title);
+      const key = normTitle
         .normalize('NFKC')
         .toLowerCase()
         .replace(/[\s（()）：:，,。]/g, '');
-      const group = groups.get(key) ?? { title: section.title, bodies: [] };
+      const group = groups.get(key) ?? { title: normTitle, bodies: [] };
       const body = demoteHeadings(section.body).trim();
       if (body && !group.bodies.includes(body)) group.bodies.push(body);
       groups.set(key, group);
     }
+
+  const symbolGroup = groups.get('符號與單位');
+  if (symbolGroup) {
+    const { unitRows, termRows } = separateSymbolAndTermBodies(
+      symbolGroup.bodies,
+    );
+    if (termRows.length > 0) {
+      const termKey = '核心專有名詞對照表';
+      const existingTermGroup = groups.get(termKey) ?? {
+        title: '核心專有名詞對照表',
+        bodies: [],
+      };
+      existingTermGroup.bodies.push(
+        ['| 中文 | 英文 | 白話說明 |', '| --- | --- | --- |', ...termRows].join(
+          '\n',
+        ),
+      );
+      groups.set(termKey, existingTermGroup);
+      if (unitRows.length > 0) {
+        symbolGroup.bodies = [
+          ['| 符號 | 意義 | 單位 |', '| --- | --- | --- |', ...unitRows].join(
+            '\n',
+          ),
+        ];
+      } else {
+        groups.delete('符號與單位');
+      }
+    }
+  }
+
   return [...groups.values()]
     .sort((a, b) => sectionOrder(a.title) - sectionOrder(b.title))
     .map((g) => {
@@ -443,6 +827,8 @@ export function composeReaderBody(results: SegmentResult[]) {
         merged = mergeMarkdownTables(g.bodies, '| 主題 | 內容 | 使用時機 |');
       } else if (g.title === '常見失分點與迷思') {
         merged = mergeNumberedList(g.bodies);
+      } else if (g.title === '老師可能會考的考題') {
+        merged = mergeExamBodies(g.bodies);
       } else if (g.title === '考前自我檢查') {
         merged = mergeSelfCheckList(g.bodies);
       } else if (g.title === '全篇複習整理') {
@@ -452,18 +838,36 @@ export function composeReaderBody(results: SegmentResult[]) {
       }
       return '## ' + g.title + '\n\n' + merged;
     })
+    .filter((block) => block.replace(/^##\s+[^\n]+\s*/, '').trim().length > 0)
     .join('\n\n');
 }
 
-// Models may put guide/index/review blocks inside a chapter body. Hoist
-// those blocks locally without another paid request, preserving code and math.
+// Models may put guide/index/review blocks inside a chapter body, or stuff
+// an entire multi-section handout inside a single "這堂課在講什麼" / "正文教學區"
+// section. Hoist and split those blocks locally without another paid request.
 function splitHandoutBlocks(section: { title: string; body: string }) {
+  const rawSecTitle = section.title.trim();
+  const secWrapper = isWrapperHeading(rawSecTitle);
+  const normSecTitle = secWrapper ? '' : normalizeSpecialTitle(rawSecTitle);
+  const isWholeDocInGuide = normSecTitle === '這堂課在講什麼' || secWrapper;
+
   const blocks: { title: string; body: string }[] = [],
     main: string[] = [];
   let target = main,
-    meta: { title: string; lines: string[]; depth: number } | undefined,
+    meta:
+      | {
+          title: string;
+          rawTitle?: string;
+          lines: string[];
+          depth: number;
+          isChapter?: boolean;
+        }
+      | undefined,
     fence: string | null = null,
-    math = false;
+    math = false,
+    inTeachingZone = /^正文教學區/.test(rawSecTitle),
+    skipSubtreeDepth = 0;
+
   const flush = () => {
     if (meta) {
       const body = meta.lines
@@ -471,49 +875,109 @@ function splitHandoutBlocks(section: { title: string; body: string }) {
         .trim()
         .replace(/\n\s*---\s*$/, '')
         .trim();
-      if (body) blocks.push({ title: meta.title, body });
+      // Drop fabricated round-minute timeline tables when the model titled it "時間軸索引"
+      const isFabricatedTimeline =
+        meta.title === '內容索引' &&
+        meta.rawTitle === '時間軸索引' &&
+        /00:00\s*[-~～]\s*0[25]:00|14:00\s*[-~～]\s*end/i.test(body);
+      if (body && !isFabricatedTimeline) {
+        blocks.push({ title: meta.title, body });
+      }
       meta = undefined;
       target = main;
     }
   };
-  for (const line of section.body.split('\n')) {
-    const marker = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+
+  const cleanedBody = normalizeNotesMarkdown(section.body);
+  for (const line of cleanedBody.split('\n')) {
+    const marker = line.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
     if (marker) {
       if (!fence) fence = marker[1];
-      else if (marker[1][0] === fence[0] && marker[1].length >= fence.length)
+      else if (
+        marker[1][0] === fence[0] &&
+        marker[1].length >= fence.length &&
+        !marker[2].trim()
+      )
         fence = null;
-      target.push(line);
+      if (!skipSubtreeDepth) target.push(line);
       continue;
     }
     if (!fence && /^\s*\$\$\s*$/.test(line)) {
       math = !math;
-      target.push(line);
+      if (!skipSubtreeDepth) target.push(line);
       continue;
     }
     const heading =
       !fence && !math ? line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/) : null;
     if (heading) {
-      const title = heading[2].replace(/^\*\*|\*\*$/g, '').trim(),
+      const rawTitle = heading[2].replace(/^\*\*|\*\*$/g, '').trim(),
         depth = heading[1].length;
+      if (skipSubtreeDepth) {
+        if (depth > skipSubtreeDepth) continue;
+        skipSubtreeDepth = 0;
+      }
+      if (isDiscardedHeading(rawTitle)) {
+        skipSubtreeDepth = depth;
+        continue;
+      }
+      if (isWrapperHeading(rawTitle)) {
+        if (/^正文教學區/.test(rawTitle)) {
+          flush();
+          inTeachingZone = true;
+        }
+        continue;
+      }
+      const title = normalizeSpecialTitle(rawTitle);
+      // Skip duplicate self-heading (e.g. "## 這堂課在講什麼" inside "這堂課在講什麼")
+      if (!meta && title === normSecTitle) {
+        continue;
+      }
+      if (meta && title === meta.title) {
+        continue;
+      }
+      const isGuideSubheading =
+        /^建議閱讀順序|^核心主軸/.test(title);
       const keepSubheadingInside =
         meta &&
         depth > meta.depth &&
-        ['這堂課在講什麼', '老師可能會考的考題', '課程提醒'].includes(
-          meta.title,
-        );
+        !SPECIAL_TITLES.includes(title) &&
+        ((meta.title === '這堂課在講什麼' && isGuideSubheading) ||
+          meta.title === '老師可能會考的考題' ||
+          meta.title === '課程提醒' ||
+          meta.isChapter === true);
+
       if (meta && !keepSubheadingInside) flush();
-      if (SPECIAL_TITLES.includes(title) && title !== section.title) {
+
+      if (SPECIAL_TITLES.includes(title) && title !== normSecTitle) {
         flush();
-        meta = { title, lines: [], depth };
+        inTeachingZone = false;
+        meta = { title, rawTitle, lines: [], depth };
         target = meta.lines;
         continue;
       }
+
+      // If the LLM stuffed chapters into "這堂課在講什麼" or "正文教學區",
+      // any non-guide heading starts its own top-level chapter block.
+      if (isWholeDocInGuide && !isGuideSubheading) {
+        if (!meta && (depth <= 2 || inTeachingZone || secWrapper)) {
+          flush();
+          meta = {
+            title: rawTitle.replace(/\s*Risk[-‑]5/gi, ' RISC-V').replace(/中斷空能器/g, '中斷控制器').replace(/中算控制器/g, '微控制器').replace(/Powerline Documentation/gi, 'Powerline Communication'),
+            rawTitle,
+            lines: [],
+            depth,
+            isChapter: true,
+          };
+          target = meta.lines;
+          continue;
+        }
+      }
     }
-    target.push(line);
+    if (!skipSubtreeDepth) target.push(line);
   }
   flush();
   const body = main.join('\n').trim();
-  if (body) blocks.unshift({ title: section.title, body });
+  if (body && normSecTitle) blocks.unshift({ title: normSecTitle, body });
   return blocks;
 }
 

@@ -1,10 +1,10 @@
-let converterPromise: Promise<(text: string) => string> | undefined;
+import { Converter } from 'opencc-js/cn2t';
 
-export async function toTraditionalStudyText(value: string) {
-  converterPromise ??= import('opencc-js/cn2t').then(({ Converter }) =>
-    Converter({ from: 'cn', to: 'tw' }),
-  );
-  const convert = await converterPromise;
+let syncConverter: ((text: string) => string) | undefined;
+
+export function toTraditionalStudyTextSync(value: string) {
+  syncConverter ??= Converter({ from: 'cn', to: 'tw' });
+  const convert = syncConverter;
   const convertProse = (line: string) => {
     let cursor = 0;
     let result = '';
@@ -29,4 +29,8 @@ export async function toTraditionalStudyText(value: string) {
       return fence ? line : convertProse(line);
     })
     .join('\n');
+}
+
+export async function toTraditionalStudyText(value: string) {
+  return toTraditionalStudyTextSync(value);
 }

@@ -88,7 +88,7 @@ export function startGatewayServer({
       target = `http://127.0.0.1:${webPort}${request.url}`;
     }
     const maxBytes = pathname.startsWith("/api/audio/")
-      ? 31 * 1024 * 1024
+      ? 101 * 1024 * 1024
       : 12 * 1024 * 1024;
     if (Number(request.headers["content-length"] || 0) > maxBytes)
       return fail(response, 413, "Request too large");

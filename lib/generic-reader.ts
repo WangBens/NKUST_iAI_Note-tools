@@ -1,7 +1,22 @@
 import { assertNotesMath } from './iai-workflow.ts';
 import type { ResilientCache, SegmentResult } from './study-resilient.ts';
-export const READER_VERSION = 'reader-20261017-learning-handout-v2';
+export const READER_VERSION = 'reader-20261122-learning-handout-v3';
 export const REVIEW_VERSION = 'source-audit-20261017-handout-v1';
+
+const SPECIAL_TITLES = [
+  '這堂課在講什麼',
+  '本次學習概覽',
+  '內容索引',
+  '符號與單位',
+  '核心專有名詞對照表',
+  '總整理表',
+  '常見失分點與迷思',
+  '老師可能會考的考題',
+  '考前自我檢查',
+  '全篇複習整理',
+  '課程提醒',
+];
+
 export function sourceResultsDone(cache: ResilientCache) {
   const state = cache.recovery;
   if (!state || state.total < 1) return false;
@@ -31,6 +46,7 @@ export function sourceResultsDone(cache: ResilientCache) {
       ),
   );
 }
+
 function demoteHeadings(value: string) {
   let fence: string | null = null;
   return value
@@ -43,17 +59,177 @@ function demoteHeadings(value: string) {
           fence = null;
         return line;
       }
-      return fence
-        ? line
-        : line.replace(
-            /^(#{1,6})\s+/,
-            (_match, hashes) =>
-              '#'.repeat(hashes.length <= 2 ? 3 : Math.min(4, hashes.length)) +
-              ' ',
-          );
+      if (fence) return line;
+      // Strip horizontal rules outside code fences to maintain minimalist layout.
+      if (/^\s*(?:---+|___+|\*\*\*+)\s*$/.test(line)) return '';
+      return line.replace(
+        /^(#{1,6})\s+/,
+        (_match, hashes) =>
+          '#'.repeat(hashes.length <= 2 ? 3 : Math.min(4, hashes.length)) + ' ',
+      );
     })
-    .join('\n');
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n');
 }
+
+function mergeMarkdownTables(bodies: string[], defaultHeader: string) {
+  let header = defaultHeader;
+  let sep =
+    '|' +
+    defaultHeader
+      .split('|')
+      .slice(1, -1)
+      .map(() => ' --- ')
+      .join('|') +
+    '|';
+  const rows: string[] = [];
+  const rowKeys = new Set<string>();
+  const extras: string[] = [];
+  for (const body of bodies) {
+    for (const rawLine of body.split('\n')) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      if (line.startsWith('|') && line.endsWith('|')) {
+        if (/^\|[\s:-]+(?:\|[\s:-]+)+\|$/.test(line)) {
+          sep = line;
+          continue;
+        }
+        if (
+          /時間區段|符號|中文|主題|必會觀念|核心觀念|主要內容|白話說明|使用時機/.test(
+            line,
+          ) &&
+          rows.length === 0
+        ) {
+          header = line;
+          continue;
+        }
+        const key = line.replace(/\s+/g, '').toLowerCase();
+        if (!rowKeys.has(key)) {
+          rowKeys.add(key);
+          rows.push(line);
+        }
+        continue;
+      }
+      if (!extras.includes(rawLine)) extras.push(rawLine);
+    }
+  }
+  const parts: string[] = [];
+  if (rows.length) parts.push([header, sep, ...rows].join('\n'));
+  if (extras.length) parts.push(extras.join('\n').trim());
+  return parts.join('\n\n');
+}
+
+function mergeNumberedList(bodies: string[]) {
+  const items: string[] = [];
+  const seen = new Set<string>();
+  const extras: string[] = [];
+  for (const body of bodies) {
+    for (const rawLine of body.split('\n')) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const m = line.match(/^(?:\d+[.、)]\s*|-\s*)(.+)$/);
+      if (m) {
+        const text = m[1].trim();
+        const key = text.replace(/\s+/g, '').toLowerCase();
+        if (text && !seen.has(key)) {
+          seen.add(key);
+          items.push(text);
+        }
+        continue;
+      }
+      if (!extras.includes(rawLine)) extras.push(rawLine);
+    }
+  }
+  const parts: string[] = [];
+  if (items.length)
+    parts.push(items.map((item, i) => `${i + 1}. ${item}`).join('\n'));
+  if (extras.length) parts.push(extras.join('\n').trim());
+  return parts.join('\n\n');
+}
+
+function mergeSelfCheckList(bodies: string[]) {
+  const items: string[] = [];
+  const seen = new Set<string>();
+  for (const body of bodies) {
+    for (const rawLine of body.split('\n')) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const m = line.match(/^(?:[-*]\s*|\d+[.、)]\s*)(.+)$/);
+      const text = (m ? m[1] : line).trim();
+      const normalized = text.startsWith('我能') ? text : `我能${text}`;
+      const key = normalized.replace(/\s+/g, '').toLowerCase();
+      if (text && !seen.has(key)) {
+        seen.add(key);
+        items.push(`- ${normalized}`);
+      }
+    }
+  }
+  return items.join('\n');
+}
+
+function mergeCourseGuideBodies(bodies: string[]) {
+  if (bodies.length <= 1) return bodies.join('\n\n');
+  const introParagraphs: string[] = [];
+  const introSeen = new Set<string>();
+  const orderSteps: string[] = [];
+  const orderSeen = new Set<string>();
+  const coreItems: string[] = [];
+  const coreSeen = new Set<string>();
+
+  for (const body of bodies) {
+    let section: 'intro' | 'order' | 'core' = 'intro';
+    for (const rawLine of body.split('\n')) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      if (/^#{2,4}\s*建議閱讀順序/.test(line)) {
+        section = 'order';
+        continue;
+      }
+      if (/^#{2,4}\s*核心主軸/.test(line)) {
+        section = 'core';
+        continue;
+      }
+      if (section === 'order') {
+        const m = line.match(/^(?:\d+[.、)]\s*|[-*]\s*)(.+)$/);
+        const text = (m ? m[1] : line).trim();
+        const key = text.replace(/\s+/g, '').toLowerCase();
+        if (text && !orderSeen.has(key)) {
+          orderSeen.add(key);
+          orderSteps.push(text);
+        }
+      } else if (section === 'core') {
+        const key = line.replace(/\s+/g, '').toLowerCase();
+        if (!coreSeen.has(key)) {
+          coreSeen.add(key);
+          coreItems.push(rawLine);
+        }
+      } else {
+        const key = line.replace(/\s+/g, '').toLowerCase();
+        if (!introSeen.has(key)) {
+          introSeen.add(key);
+          introParagraphs.push(line);
+        }
+      }
+    }
+  }
+
+  const parts: string[] = [];
+  if (introParagraphs.length) parts.push(introParagraphs.join('\n\n'));
+  if (orderSteps.length) {
+    parts.push(
+      '### 建議閱讀順序\n\n' +
+        orderSteps
+          .slice(0, 3)
+          .map((s, i) => `${i + 1}. ${s}`)
+          .join('\n'),
+    );
+  }
+  if (coreItems.length) {
+    parts.push('### 核心主軸\n\n' + coreItems.join('\n'));
+  }
+  return parts.join('\n\n');
+}
+
 function mergeOverviewBodies(bodies: string[]) {
   if (bodies.length <= 1) return bodies.join('\n\n');
   if (!bodies.some((b) => /本次學習範圍/.test(b))) return bodies.join('\n\n');
@@ -121,7 +297,10 @@ function mergeRevisionBodies(bodies: string[]) {
     for (const rawLine of body.split('\n')) {
       const line = rawLine.trim();
       if (!line) continue;
-      if (/^\*\*自我檢查[：:]?\*\*[：:]?$/.test(line) || /^#{1,4}\s*自我檢查/.test(line)) {
+      if (
+        /^\*\*自我檢查[：:]?\*\*[：:]?$/.test(line) ||
+        /^#{1,4}\s*自我檢查/.test(line)
+      ) {
         inSelfCheck = true;
         continue;
       }
@@ -167,6 +346,33 @@ function mergeRevisionBodies(bodies: string[]) {
   return parts.join('\n\n');
 }
 
+function sectionOrder(title: string) {
+  switch (title) {
+    case '這堂課在講什麼':
+    case '本次學習概覽':
+      return 0;
+    case '內容索引':
+      return 1;
+    case '符號與單位':
+    case '核心專有名詞對照表':
+      return 2;
+    case '總整理表':
+      return 10;
+    case '常見失分點與迷思':
+      return 11;
+    case '老師可能會考的考題':
+      return 12;
+    case '考前自我檢查':
+      return 13;
+    case '全篇複習整理':
+      return 14;
+    case '課程提醒':
+      return 15;
+    default:
+      return 5;
+  }
+}
+
 export function composeReaderBody(results: SegmentResult[]) {
   const groups = new Map<string, { title: string; bodies: string[] }>();
   for (const result of results)
@@ -180,29 +386,37 @@ export function composeReaderBody(results: SegmentResult[]) {
       if (body && !group.bodies.includes(body)) group.bodies.push(body);
       groups.set(key, group);
     }
-  const order = (title: string) =>
-    title === '本次學習概覽'
-      ? 0
-      : title === '全篇複習整理'
-        ? 2
-        : title === '課程提醒'
-          ? 3
-          : 1;
   return [...groups.values()]
-    .sort((a, b) => order(a.title) - order(b.title))
+    .sort((a, b) => sectionOrder(a.title) - sectionOrder(b.title))
     .map((g) => {
-      const merged =
-        g.title === '本次學習概覽'
-          ? mergeOverviewBodies(g.bodies)
-          : g.title === '全篇複習整理'
-            ? mergeRevisionBodies(g.bodies)
-            : g.bodies.join('\n\n');
+      let merged: string;
+      if (g.title === '這堂課在講什麼') {
+        merged = mergeCourseGuideBodies(g.bodies);
+      } else if (g.title === '本次學習概覽') {
+        merged = mergeOverviewBodies(g.bodies);
+      } else if (g.title === '內容索引') {
+        merged = mergeMarkdownTables(g.bodies, '| 時間區段 | 主要內容 |');
+      } else if (g.title === '符號與單位') {
+        merged = mergeMarkdownTables(g.bodies, '| 符號 | 意義 | 單位 |');
+      } else if (g.title === '核心專有名詞對照表') {
+        merged = mergeMarkdownTables(g.bodies, '| 中文 | 英文 | 白話說明 |');
+      } else if (g.title === '總整理表') {
+        merged = mergeMarkdownTables(g.bodies, '| 主題 | 內容 | 使用時機 |');
+      } else if (g.title === '常見失分點與迷思') {
+        merged = mergeNumberedList(g.bodies);
+      } else if (g.title === '考前自我檢查') {
+        merged = mergeSelfCheckList(g.bodies);
+      } else if (g.title === '全篇複習整理') {
+        merged = mergeRevisionBodies(g.bodies);
+      } else {
+        merged = g.bodies.join('\n\n');
+      }
       return '## ' + g.title + '\n\n' + merged;
     })
-    .join('\n\n---\n\n');
+    .join('\n\n');
 }
 
-// Models may put the overview/revision/reminders inside a chapter body. Hoist
+// Models may put guide/index/review blocks inside a chapter body. Hoist
 // those blocks locally without another paid request, preserving code and math.
 function splitHandoutBlocks(section: { title: string; body: string }) {
   const blocks: { title: string; body: string }[] = [],
@@ -242,8 +456,14 @@ function splitHandoutBlocks(section: { title: string; body: string }) {
     if (heading) {
       const title = heading[2].replace(/^\*\*|\*\*$/g, '').trim(),
         depth = heading[1].length;
-      if (meta && (depth <= meta.depth || meta.title !== '課程提醒')) flush();
-      if (['本次學習概覽', '全篇複習整理', '課程提醒'].includes(title)) {
+      const keepSubheadingInside =
+        meta &&
+        depth > meta.depth &&
+        ['這堂課在講什麼', '老師可能會考的考題', '課程提醒'].includes(
+          meta.title,
+        );
+      if (meta && !keepSubheadingInside) flush();
+      if (SPECIAL_TITLES.includes(title) && title !== section.title) {
         flush();
         meta = { title, lines: [], depth };
         target = meta.lines;
@@ -257,6 +477,7 @@ function splitHandoutBlocks(section: { title: string; body: string }) {
   if (body) blocks.unshift({ title: section.title, body });
   return blocks;
 }
+
 export async function finalReaderNotes(cache: ResilientCache) {
   const state = cache.recovery!;
   const pending = Array.from({ length: state.total }, (_, i) => i + 1).filter(

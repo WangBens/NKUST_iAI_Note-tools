@@ -43,16 +43,20 @@ test('user-provided handout policy is shared in full by writing and review', () 
   for (const prompt of [COMPLETE_NOTES_PROMPT, REVIEW_NOTES_PROMPT]) {
     assert.ok(prompt.startsWith(LEARNING_NOTES_INSTRUCTION));
     for (const requirement of [
-      '保留考試及課程提醒',
-      '不得假裝已驗證',
-      '來源有時間戳記才保留',
-      '不設定固定摘要比例',
-      '不要強制套用固定模板',
-      '全篇複習整理',
+      '保留老師提醒',
+      '這堂課在講什麼',
+      '建議閱讀順序',
+      '核心主軸',
+      '總整理表',
+      '常見失分點與迷思',
+      '老師可能會考的考題',
+      '考前自我檢查',
+      '不加括號',
+      '不要使用',
       '指定語言的程式碼區塊',
       '只輸出完成的繁體中文 Markdown 筆記',
     ])
-      assert.ok(prompt.includes(requirement));
+      assert.ok(prompt.includes(requirement), `Missing requirement: ${requirement}`);
   }
 });
 
@@ -327,7 +331,7 @@ test('only complete knowledge goes into Markdown, with no source/model/date/tran
     generatedAt: 'PRIVATE_DATE',
     includeTranscript: true,
   });
-  assert.match(md, /^# private-course｜學習筆記/);
+  assert.match(md, /^# private-course 完整重點講義/);
   assert.doesNotMatch(
     md,
     /老師聊天|來源|Furen|PRIVATE_DATE|逐字稿/,
@@ -339,7 +343,7 @@ test('only complete knowledge goes into Markdown, with no source/model/date/tran
       notes: '',
       generatedAt: '',
     }),
-    '# 學習筆記\n',
+    '# 完整重點講義\n',
   );
 });
 test('chat, encouragement and unintelligible noise are terminal filtered units, never chapters', async () => {
@@ -838,4 +842,76 @@ test('parseLearningReceipt locally repairs missing colon before blockquote and t
   assert.equal(checked.sections[0].title, '嵌入式系統學習重點');
   assert.match(checked.sections[0].body, /核心觀念/);
 });
+
+test('new v3 handout layout composes guide, tables, pitfalls, exam predictions, self-check with no horizontal rules', async () => {
+  const seg1 = {
+    note: '',
+    repairs: [],
+    sections: [
+      {
+        topicId: 's0:guide',
+        title: '這堂課在講什麼',
+        body: '本節介紹 8051 中斷來源與旗標行為。\n\n**掌握旗標設定與致能位元即可看懂中斷觸發流程。**\n\n### 建議閱讀順序\n1. 先理解中斷來源\n2. 再看旗標控制\n\n### 核心主軸\n- $EA = 1$ 且個別致能位元為 $1$ 才會響應中斷',
+      },
+      {
+        topicId: 's0:terms',
+        title: '核心專有名詞對照表',
+        body: '| 中文 | 英文 | 白話說明 |\n| --- | --- | --- |\n| 中斷旗標 | interrupt flag | 事件發生時由硬體立起的狀態燈 |',
+      },
+      {
+        topicId: 's0:body',
+        title: '外部中斷觸發方式',
+        body: '外部中斷分為電位觸發與邊緣觸發。\n\n- **低電位觸發 low-level trigger**：腳位維持低電位即持續請求。\n- **下降沿觸發 falling-edge trigger**：僅在高轉低瞬間請求一次。\n\n---\n\n老師特別提醒這段考試會考。',
+      },
+      {
+        topicId: 's0:summary',
+        title: '總整理表',
+        body: '| 主題 | 內容 | 使用時機 |\n| --- | --- | --- |\n| IT0 設定 | 0 為電位、1 為邊緣 | 外部中斷初始化 |',
+      },
+      {
+        topicId: 's0:pitfalls',
+        title: '常見失分點與迷思',
+        body: '1. **忘記開啟全域致能 EA。** 即使旗標立起，EA 為 0 仍不會進入 ISR。',
+      },
+      {
+        topicId: 's0:exam',
+        title: '老師可能會考的考題',
+        body: '### 比較題\n**請比較低電位觸發與下降沿觸發的差異。**\n- 作答要點：說明觸發瞬間 vs 持續電位條件。',
+      },
+      {
+        topicId: 's0:check',
+        title: '考前自我檢查',
+        body: '- 我能說出 IT0=0 與 IT0=1 的差異。\n- 我能解釋為什麼 EA=1 與 EX0=1 缺一不可。',
+      },
+    ],
+  };
+  const composed = composeReaderBody([seg1]);
+  const full = buildMarkdown({
+    filename: '嵌入式系統中斷.m4a',
+    transcript: '原始逐字稿內容',
+    notes: composed,
+    generatedAt: '2026/11/22',
+  });
+  assert.match(full, /^# 嵌入式系統中斷 完整重點講義\n\n## 這堂課在講什麼/);
+  assert.ok(!/^---$/m.test(full), 'Should not contain horizontal rules ---');
+  assert.ok(!full.includes('原始逐字稿內容'), 'Should not append transcript');
+  const idxGuide = full.indexOf('## 這堂課在講什麼');
+  const idxTerms = full.indexOf('## 核心專有名詞對照表');
+  const idxBody = full.indexOf('## 外部中斷觸發方式');
+  const idxSummary = full.indexOf('## 總整理表');
+  const idxPitfalls = full.indexOf('## 常見失分點與迷思');
+  const idxExam = full.indexOf('## 老師可能會考的考題');
+  const idxCheck = full.indexOf('## 考前自我檢查');
+  assert.ok(
+    idxGuide < idxTerms &&
+      idxTerms < idxBody &&
+      idxBody < idxSummary &&
+      idxSummary < idxPitfalls &&
+      idxPitfalls < idxExam &&
+      idxExam < idxCheck,
+    'Sections must follow the exact v3 document order',
+  );
+  assert.match(full, /老師特別提醒這段考試會考/);
+});
+
 

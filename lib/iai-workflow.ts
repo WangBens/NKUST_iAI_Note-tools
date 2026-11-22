@@ -584,7 +584,7 @@ export function buildMarkdown(options: {
   // not in the reader's document, even if a legacy caller asks for appendix.
   const heading =
     notes.trim() && title && title !== '錄音'
-      ? `# ${title}｜學習筆記`
-      : '# 學習筆記';
+      ? `# ${title} 完整重點講義`
+      : '# 完整重點講義';
   return `${heading}${notes.trim() ? '\n\n' + notes : ''}\n`;
 }

@@ -212,7 +212,7 @@ export function validateEducationalContent(value: string) {
       '正文仍有內部資料欄位、來源或編輯報告；只保留知識，不寫生成過程',
     );
   if (
-    /(?:根據|依據|取自|來自|出自)[^。\n]{0,50}(?:逐字稿|本次錄音|錄音檔|ASR|原始轉錄)|(?:逐字稿|錄音內容)(?:提到|指出|顯示|說明)|老師(?:說|提到|表示)|本(?:筆記|講義)(?:依|根據|僅保留)|已驗證無誤|不對[！!]|這又不一致|[？?]\s*(?:不對|其實|實際上應為|應為)/.test(
+    /(?:根據|依據|取自|來自|出自)[^。\n]{0,50}(?:逐字稿|本次錄音|錄音檔|ASR|原始轉錄)|(?:逐字稿|錄音內容)(?:提到|指出|顯示|說明)|本(?:筆記|講義)(?:依|根據|僅保留)|已驗證無誤|不對[！!]|這又不一致|[？?]\s*(?:不對|其實|實際上應為|應為)/.test(
       value,
     )
   )
@@ -404,9 +404,18 @@ export async function validateReceipt(
     });
     const effectiveUnitIds =
       !rawUnitIds.length && studyIds.length
-        ? trimmedTitle === '本次學習概覽' ||
-          trimmedTitle === '全篇複習整理' ||
-          studyIds.length === 1
+        ? [
+            '這堂課在講什麼',
+            '本次學習概覽',
+            '內容索引',
+            '符號與單位',
+            '核心專有名詞對照表',
+            '總整理表',
+            '常見失分點與迷思',
+            '老師可能會考的考題',
+            '考前自我檢查',
+            '全篇複習整理',
+          ].includes(trimmedTitle) || studyIds.length === 1
           ? studyIds
           : seen.get(baseId)?.kind === 'study'
             ? [baseId]

@@ -502,9 +502,11 @@ function cleanProseLine(line: string) {
     !trimmed ||
     /^<\/?(?:section|sections|coverage|json|body|unit)>$/i.test(trimmed) ||
     /^[（(]?此區塊已在.*完整呈現.*[)）]?$/.test(trimmed) ||
-    /^已於上方產出.*$/.test(trimmed) ||
+    /^[（(]?見上方「.*」[)）]?$/.test(trimmed) ||
+    /^已於上方(?:產出|提供|「).*$/.test(trimmed) ||
     /^\\(?:begin|end)\{(?:itemize|enumerate)\}$/.test(trimmed) ||
-    /^or$/i.test(trimmed)
+    /^or$/i.test(trimmed) ||
+    /(?:<\/b>){4,}|(?:\$\[=\]){3,}|\${6,}/.test(trimmed)
   ) {
     return '';
   }
@@ -612,13 +614,19 @@ function cleanProseLine(line: string) {
   if (proseFormulaBullet) {
     const [, prefix, lhs, rhs, tail] = proseFormulaBullet;
     s = `${prefix.replace(/[*+•]/, '-')}**${lhs.trim()}**：${rhs.trim()}${tail ? ' ' + tail.trim() : ''}`;
-  } else {
-    // Convert single-line display math inside a bullet item `- $$...$$` to inline math `- $...$`
+  } else if (!/^\s*\$\$\s*$/.test(s)) {
+    // Convert inline display math `$$ ... $$` embedded inside prose/bullets into inline math `$...$`
     s = s.replace(
-      /^(\s*[-*+•]\s+)\$\$\s*(.+?)\s*\$\$(\s*.*)$/,
-      (_m, prefix, tex, tail) => `${prefix.replace(/[*+•]/, '-')}$${tex}$${tail}`,
+      /\$\$\s*([^$\n]+?)\s*\$\$/g,
+      (full, tex: string) => (s.trim() === full.trim() ? full : `$${tex.trim()}$`),
     );
   }
+
+  // Fix double list bullets (`- - text`, `- **- 題目：**`)
+  s = s
+    .replace(/^(\s*[-*+•]\s+)[-*+•]\s+/, '$1')
+    .replace(/^(\s*[-*+•]\s+)\*\*[-*]\s*題目([：:])\*\*/, '$1**題目$2**')
+    .replace(/([A-Za-z0-9\u4e00-\u9fff])\s*\(\1\)/g, '$1');
 
   // Split inline concatenated lists (`\- ` or `* **...**` or `。* `)
   if (!s.includes('$')) {

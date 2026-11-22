@@ -6,25 +6,35 @@ import {
   normalizeNotesMarkdown,
   splitTranscript,
 } from './iai-workflow.ts';
+import { composeReaderBody } from './generic-reader.ts';
 import { LEARNING_NOTES_INSTRUCTION } from './learning-instruction.ts';
 import { recoverNotesLayout } from './notes-recovery.ts';
 import type { ResilientCache } from './study-resilient.ts';
 import type { StudyChat, StudyProgress } from './study-notes.ts';
 import { toTraditionalStudyText } from './study-text.ts';
 
-export const DIRECT_NOTES_VERSION = 'direct-whole-transcript-20261122-v1';
+export const DIRECT_NOTES_VERSION = 'direct-whole-transcript-20261122-v2';
 export const MAX_DIRECT_TRANSCRIPT_CHARS = 60_000;
 const LONG_PART_CHARS = 45_000;
 
 export const DIRECT_HANDOUT_SYSTEM_PROMPT = `${LEARNING_NOTES_INSTRUCTION}
 
 【整份逐字稿單次直接整理規則（務必嚴格遵守）】
-1. **整份一次輸出、嚴禁分段重複**：本次提供的是**整堂課的完整逐字稿**，請直接產出**唯一一份**結構完整、前後連貫的繁體中文 Markdown 講義。\`## 這堂課在講什麼\`、\`### 建議閱讀順序\`、\`### 核心主軸\`、\`## 核心專有名詞對照表\`、\`## 總整理表\`、\`## 常見失分點與迷思\`、\`## 老師可能會考的考題\`、\`## 考前自我檢查\` **全文皆只能各出現一次**，嚴禁重複出現或自行分段重寫。
-2. **嚴格只用提供的逐字稿資料（零腦補）**：
+1. **整份一次輸出、全文主題完整涵蓋**：
+   - 本次提供的是**整堂課的完整逐字稿**，請從第一句讀到最後一句，將整堂課講授的**每一個主要主題**依序整理成獨立的 \`## 主題名稱\` 章節（後半段若轉換主題或實例亦須完整寫出，不可只寫前半段就結束）。
+   - \`## 這堂課在講什麼\`、\`### 建議閱讀順序\`、\`### 核心主軸\`、\`## 核心專有名詞對照表\`、\`## 總整理表\`、\`## 常見失分點與迷思\`、\`## 老師可能會考的考題\`、\`## 考前自我檢查\` **全文皆只能各出現一次**。
+   - **絕對不可**輸出 \`## 正文教學區\`、\`## 前置檢索工具\`、\`## 考前實戰總複習區\`、\`## ...完整重點講義\` 等模板包裝標題，也不可在文末重複附上空白的時間軸索引或「無時間戳記」提示。
+2. **強制修正語音同音錯字（不可照抄錯別字）**：
+   - 「零腦補」指的是不補造數據、不編造未講授的外部規格與章節；**但遇到語音轉錄的中文同音錯字時，必須根據上下文與對應英文術語直接還原為標準繁體中文專業術語**（例如看到 \`Exact Differential Equation\` 就必須寫「正合微分方程」而非「政和微分方程」；看到 \`Linked List\` 必寫「鏈結串列」而非「煉結穿列」；看到 \`Binary Search Tree\` 必寫「二元搜尋樹」；看到 \`Time Complexity\` 必寫「時間複雜度」；看到 \`Acid-Base Titration\` 必寫「酸鹼滴定」）。
+   - 絕對不可照抄語音錯字，也不可寫出「（可能為講誤）」「（假設名稱）」「(phonetic guess)」「（實為...）」。
+3. **嚴格只用提供的逐字稿資料（零腦補）**：
    - **只能根據下方提供的逐字稿內容**整理重點，絕對不可引入逐字稿未提及的外部晶片規格數據（如自行補上 \`64KB\`、\`20KB\`、\`72MHz\`、\`2.0V~3.6V\`、\`0x0000\` 等數字）、外部架構（如未提及的 \`8086/8259A/DMA/NVMe\`）或虛構公司／機臺名稱。
    - 若老師僅口頭說「去看 Datasheet 查記憶體多大、頻率多少、工作電壓多少」而未說出具體數字，請直接寫「查閱 Datasheet 確認記憶體容量、時脈頻率與工作電壓」，**絕對不要自己填寫範例數字**。
-   - 遇到語音辨識同音錯字時，請**對照整篇完整逐字稿的前後文**安靜還原為正確專業術語；完全無法辨識的雜訊請直接略過，**絕對不可**寫出「（可能為講誤）」「（假設名稱）」「(phonetic guess)」「（實為...）」，也不可把語音辨識錯字當成「常見失分點與迷思」。
-3. **直接輸出純淨 Markdown**：請直接以 \`## 這堂課在講什麼\` 開頭輸出完整 Markdown 講義（不要輸出 \`# \` 一級主標題，程式會自動加上；不要用 \`\`\`markdown 包裹整份回覆；不要輸出 JSON；不要輸出思考過程或前言結語）。`;
+4. **純淨繁體中文與標準格式**：
+   - **全篇（包含 \`## 考前自我檢查\`）一律使用繁體中文撰寫**，不可將自我檢查條目切換成英文句子，不可混入西班牙文等其他外語單字。
+   - 行內數學公式一律使用單錢字號 \`$...$\`（如 \`$O(1)$\`、\`$f(x,y)=C$\`），獨立成行的公式才使用 \`$$...$$\`。
+   - 列表項目只用單一 \`- \`（不可寫成 \`- - \` 或 \`- **- 題目：**\`）。
+   - 直接以 \`## 這堂課在講什麼\` 開頭輸出純淨 Markdown（不要輸出 \`# \` 一級主標題、不要用 \`\`\`markdown 包裹、不要輸出 JSON 或思考過程）。`;
 
 const DIRECT_PART_SYSTEM_PROMPT = `${LEARNING_NOTES_INSTRUCTION}
 
@@ -48,12 +58,31 @@ async function finalizeDirectMarkdown(rawReply: string, sourceText: string) {
   const traditional = await toTraditionalStudyText(rawReply);
   const normalized = normalizeNotesMarkdown(traditional);
   const recovered = await recoverNotesLayout(normalized);
-  const grounded =
-    sourceText.trim().length >= 200
+  // Run through composeReaderBody to strip wrapper headings (`正文教學區`/`前置檢索工具`),
+  // move unitless rows out of `符號與單位`, normalize exam/self-check formatting,
+  // auto-fill any omitted review sections strictly from verified chapters, and enforce grounding.
+  const structured = /^##\s+這堂課在講什麼/m.test(recovered.text)
+    ? composeReaderBody(
+        [
+          {
+            note: '',
+            repairs: [],
+            sections: [
+              {
+                topicId: 'direct',
+                title: '這堂課在講什麼',
+                body: recovered.text,
+              },
+            ],
+          },
+        ],
+        sourceText,
+      )
+    : sourceText.trim().length >= 200
       ? normalizeNotesMarkdown(enforceSourceGrounding(recovered.text, sourceText))
       : normalizeNotesMarkdown(recovered.text);
   // Strip any leading H1 heading since buildMarkdown adds the single document H1 title.
-  const withoutH1 = grounded.replace(/^#\s+[^\n]+\n+/, '').trim();
+  const withoutH1 = structured.replace(/^#\s+[^\n]+\n+/, '').trim();
   assertReadableNotes(withoutH1);
   await assertNotesMath(withoutH1);
   return withoutH1;

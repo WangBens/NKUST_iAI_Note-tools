@@ -255,6 +255,15 @@ function mergeNumberedList(bodies: string[]) {
         }
         continue;
       }
+      if (/^(?:→|->|正確觀念[：:]|錯誤觀念[：:])/.test(line) && items.length > 0) {
+        const cont = line.replace(/^(?:→|->)\s*/, '').trim();
+        if (cont) {
+          const prev = items[items.length - 1];
+          const sep = /[。！？.]$/.test(prev) ? ' ' : '。';
+          items[items.length - 1] = `${prev}${sep}${cont}`;
+        }
+        continue;
+      }
       if (!extras.includes(rawLine)) extras.push(rawLine);
     }
   }
@@ -276,7 +285,7 @@ function mergeSelfCheckList(bodies: string[]) {
       const m = line.match(/^(?:[-*]\s*|\d+[.、)]\s*)(.+)$/);
       let text = (m ? m[1] : line)
         .trim()
-        .replace(/^(?:我能\s*)?(?:\[[ xX]?\]\s*)?(?:我能|能)?\s*/, '')
+        .replace(/^(?:[-*•]\s*|我能\s*|能\s*|\[\s*[xX]?\s*\]\s*)+/, '')
         .replace(/[（(]?(?:注|註|例如)[：:][^）)]*(?:口語|誤認為|為公字)[^）)]*[）)]?/g, '')
         .trim();
       if (!text) continue;
@@ -328,6 +337,7 @@ function mergeExamBodies(bodies: string[]) {
         /^#{2,4}\s*比較題\s*[（(]續[)）]\s*$/gm,
         '### 比較題',
       )
+      .replace(/(?:^|\n)\s*[-*]\s*\*{0,4}(?:問題|題目)[：:]?\*{2,4}[：:]?\s*/g, '\n**題目：** ')
       .replace(/\*{0,4}問題\*{2,4}[：:]\s*/g, '\n**題目：** ')
       .replace(/\*{0,4}題目[：:]\*{2,4}\s*/g, '\n**題目：** ')
       .replace(

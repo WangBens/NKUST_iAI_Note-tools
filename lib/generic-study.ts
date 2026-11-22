@@ -32,6 +32,7 @@ import type {
 } from './study-resilient.ts';
 import type { StudyChat, StudyProgress } from './study-notes.ts';
 import { NOTES_POLICY_VERSION } from './learning-instruction.ts';
+import { DIRECT_NOTES_VERSION } from './direct-study.ts';
 export const COMPLETE_VERSION = '2026-10-15-generic-source-coverage-v2';
 export function canResumeSummaryWithModel(
   previous: string | undefined,
@@ -112,6 +113,12 @@ function counts(state: RecoveryState) {
 export function hasCompleteStudyNotes(
   cache: ResilientCache | null | undefined,
 ) {
+  if (
+    cache?.finalNotes?.key === DIRECT_NOTES_VERSION &&
+    Boolean(cache.finalNotes.value?.trim())
+  ) {
+    return true;
+  }
   return Boolean(
     cache?.recovery?.version === COMPLETE_VERSION &&
     sourceResultsDone(cache) &&
@@ -121,6 +128,12 @@ export function hasCompleteStudyNotes(
 }
 export function composeCompleteNotes(cache: ResilientCache) {
   if (!hasCompleteStudyNotes(cache)) return '';
+  if (
+    cache.finalNotes?.key === DIRECT_NOTES_VERSION &&
+    cache.finalNotes.value?.trim()
+  ) {
+    return cache.finalNotes.value;
+  }
   const state = cache.recovery!;
   return composeReaderBody(
     Array.from({ length: state.total }, (_, i) => state.results[String(i)]),

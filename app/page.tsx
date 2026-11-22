@@ -47,13 +47,13 @@ import {
 } from '@/lib/study-notes';
 import type { ResilientCache } from '@/lib/study-resilient';
 import {
-  summarizeCompleteStudyNotes as summarizeStudyTranscriptResilient,
   validateCompleteCache as validateRecoveredNotes,
   composeCompleteNotes as recoveryExport,
   hasCompleteStudyNotes,
   canResumeSummaryWithModel,
   canResumeCorrectionWithModel,
 } from '@/lib/generic-study';
+import { summarizeDirectStudyNotes } from '@/lib/direct-study';
 import {
   CHECKPOINT_KEY,
   encodeCheckpoint,
@@ -796,8 +796,8 @@ export default function Home() {
       try {
         const body = JSON.stringify({
           model,
-          temperature: 0.2,
-          frequency_penalty: 0.3,
+          temperature: 0.1,
+          frequency_penalty: 0.2,
           stream: false,
           max_tokens: maxTokens,
           chat_template_kwargs: { enable_thinking: false },
@@ -1023,43 +1023,34 @@ export default function Home() {
           merges: {},
         };
     }
-    return summarizeStudyTranscriptResilient(
+    return summarizeDirectStudyNotes(
       text,
       (messages, maxTokens) =>
         postChatWithRetry(messages, signal, '重點整理', maxTokens),
       summaryCacheRef.current,
       {
         rawText,
-        correctedParts: correctionCacheRef.current?.parts,
-        terminology: correctionCacheRef.current?.terminology,
         filename: file?.name,
         preference: customPrompt.trim(),
-        manualResume: failedStage === 'summary' || partialResult,
         onCheckpoint: () => saveCheckpoint(text),
         onProgress: (stage, current, total) => {
           setPhase(stage);
           setProgress(
             stage === 'merging'
-              ? 94
-              : 75 +
-                  Math.round(
-                    ((current - (stage === 'reviewing' ? 0.2 : 0.8)) / total) *
-                      17,
-                  ),
+              ? 92
+              : total === 1
+                ? 72
+                : 65 + Math.round(((current - 0.5) / total) * 24),
           );
           setStatus({
             title:
-              stage === 'reviewing'
-                ? `${model} 正在校核第 ${current}/${total} 段學習重點`
-                : stage === 'merging'
-                  ? '正在統整與校核完整筆記'
-                  : `${model} 正在整理第 ${current}/${total} 段學習重點`,
+              stage === 'merging'
+                ? `${model} 正在統整為唯一一份完整講義`
+                : total === 1
+                  ? `${model} 正在一次整理整份逐字稿重點（已關閉思考模式）`
+                  : `${model} 正在整理第 ${current}/${total} 大段重點（已關閉思考模式）`,
             detail:
-              stage === 'reviewing'
-                ? '對照原始轉錄檢查公式、數值、條件與術語，移除來源無法支持的內容。'
-                : stage === 'merging'
-                  ? '保留各段的重點、解題步驟與限制，去除重複並檢查排版。'
-                  : '整理概念、解題步驟與必要比較；已完成的分段會保留。',
+              '已關閉思考模式，直接以完整逐字稿為唯一資料來源產出結構化講義，並由程式自動過濾無來源腦補。',
           });
         },
       },
@@ -1194,17 +1185,20 @@ export default function Home() {
       rawTranscriptRef.current = rawText;
       saveCheckpoint(rawText);
       setProgress(59);
-      currentStage = 'correction';
-      const correctedText = await correctTranscript(rawText, controller.signal);
-      setTranscript(correctedText);
-      saveCheckpoint(correctedText);
       if (mode === 'transcript') {
+        currentStage = 'correction';
+        const correctedText = await correctTranscript(
+          rawText,
+          controller.signal,
+        );
+        setTranscript(correctedText);
+        saveCheckpoint(correctedText);
         finishDocument(correctedText);
         return;
       }
       currentStage = 'summary';
-      const notes = await summarizeTranscript(correctedText, controller.signal);
-      finishDocument(correctedText, notes);
+      const notes = await summarizeTranscript(rawText, controller.signal);
+      finishDocument(rawText, notes);
     } catch (reason) {
       handleFailure(reason, currentStage);
     } finally {

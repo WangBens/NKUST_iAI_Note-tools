@@ -20,7 +20,7 @@
     "start": "vinext start",
     "gateway": "node local/ubuntu-gateway.mjs",
     "lint": "oxlint",
-    "test": "node --test --experimental-strip-types tests/workflow.test.mjs tests/bridge.integration.test.mjs tests/study-notes.test.mjs tests/recovery.test.mjs tests/dedup.integration.test.mjs tests/completeness.test.mjs tests/generic.test.mjs tests/upstream.test.mjs",
+    "test": "node --test --experimental-strip-types tests/workflow.test.mjs tests/bridge.integration.test.mjs tests/study-notes.test.mjs tests/recovery.test.mjs tests/dedup.integration.test.mjs tests/completeness.test.mjs tests/generic.test.mjs tests/direct-study.test.mjs tests/upstream.test.mjs",
     "mock": "node tests/mock-iai-server.mjs",
     "bridge": "node --experimental-strip-types local/iai-bridge.mjs",
     "format": "oxfmt",

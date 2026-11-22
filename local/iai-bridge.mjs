@@ -344,8 +344,11 @@ async function handleChatCompletion(request, response, origin) {
       throw error;
     }
 
+    if (payload.chat_template_kwargs === undefined) {
+      payload.chat_template_kwargs = { enable_thinking: false };
+    }
     process.stdout.write(
-      `[LLM] Incoming chat, ${payload.messages.length} msgs, max_tokens=${payload.max_tokens ?? "default"}\n`,
+      `[LLM] Incoming chat, ${payload.messages.length} msgs, max_tokens=${payload.max_tokens ?? "default"}, thinking=${payload.chat_template_kwargs?.enable_thinking ?? "default"}\n`,
     );
 
     startEventStream(response, origin);

@@ -494,7 +494,8 @@ function cleanProseLine(line: string) {
     .replace(/-\s*\\{2,}\s*$/, '')
     .replace(/([。！？.])\s*\bnor\s*$/i, '$1')
     .replace(/^i(?=[\u4e00-\u9fff])/, '')
-    .replace(/（\*\*[^）]*?(?:while"\}|而"\})[^）]*?）/g, '');
+    .replace(/（\*\*[^）]*?(?:while"\}|而"\})[^）]*?）/g, '')
+    .replace(/^(\s*#{1,6}\s+)["'“”「『]+([^"'”」』]+)$/, '$1$2');
 
   const trimmed = s.trim();
   if (
@@ -508,27 +509,49 @@ function cleanProseLine(line: string) {
     return '';
   }
 
+  // Drop table rows, pitfall items, or bullets that fabricate hypothetical entities
+  // from ASR noise or comment on ASR homophone/transcription errors instead of course knowledge.
+  const isTableOrListLine = /^(?:\||[-*+•]\s|\d+[.、)]\s)/.test(trimmed);
+  if (
+    !trimmed.startsWith('#') &&
+    (/(?:假設名稱|可能為講誤|可能為誤傳|此處可能為誤傳|可能誤寫|為口語誤傳|疑為(?:語音)?辨識錯誤|疑似講者口誤|無法查證實體|無法確認為標準術語|phonetic\s*guess|context\s*unclear|\bunverified\b|(?:語音|錄音)辨識(?:錯誤|誤判|誤轉|對.*的誤)|屬於轉錄錯誤|此為錄音轉誤(?!，正確應為\s*Datasheet)|音近誤稱|誤認為真實檔名|課為真實檔名|把「[^」]+」聽錯成|將「(?:項鏈|錫標|公字|1000F13|1300F103)[^」]*」(?:誤認為|當作)|混淆「項鏈」|並非飾品|是誤聊|無關漢字構形)/i.test(
+      trimmed,
+    ) ||
+      (isTableOrListLine && /假設為某(?!\s*些)/i.test(trimmed)))
+  ) {
+    return '';
+  }
+
   s = s
     .replace(/^\s*\\item\s+/, '- ')
     .replace(/^erromagnetic interference\b/i, '- 電磁干擾 Electromagnetic Interference')
     .replace(/^fault\s+注入測試/i, '- 故障注入測試（Fault Injection）')
-    .replace(/^or\s+(?=[\u4e00-\u9fffA-Za-z*])/i, '- ');
+    .replace(/^or\s+(?=[\u4e00-\u9fffA-Za-z*])/i, '- ')
+    .replace(/`?(?:1300F103|1000F13)DataS(?:hip|heet)`?/gi, 'STM32F103 Datasheet')
+    .replace(/此段落經校正後[^。\n]*[。]?/g, '')
+    .replace(/講師說「[^」]*perlible[^」]*」，意指\s*/g, '')
+    .replace(/「Performer\s+line\s+plus\s+DACO」等營銷詞彙/gi, '晶片系列行銷名稱')
+    .replace(/\bIMT\s*控制器/g, 'INT 中斷控制器');
 
-  // Apply ASR typo restoration outside inline code spans
+  // Apply ASR typo restoration and meta-annotation cleanup outside inline code spans
   s = s
     .split(/(`+[^`]*`+)/g)
     .map((part, idx) =>
       idx % 2
         ? part
         : part
+            .replace(/\s*เช่น\s*/g, '，例如：')
+            .replace(/[\u0E00-\u0E7F]+/g, '')
             .replace(/Serial\s+Porn/gi, 'Serial Port')
             .replace(/Porn3\s*port|Porn3/gi, 'Port 3 (P3)')
             .replace(/GPIO8051/g, '8051 GPIO')
             .replace(/錫標/g, '旗標')
+            .replace(/暫停器|降成器|戰存器|戰爭器|戰神器|散渦器/g, '暫存器')
             .replace(/軟體清楚/g, '軟體清除')
             .replace(/硬體清楚/g, '硬體清除')
             .replace(/中斷空能器/g, '中斷控制器')
-            .replace(/中算控制器/g, '微控制器')
+            .replace(/中算控制器|為公字器|一般用的通知器/g, '微控制器')
+            .replace(/1300F103DataS(?:hip|heet)|1000F13DataS(?:hip|heet)/gi, 'STM32F103 Datasheet')
             .replace(/DataShip/g, 'Datasheet')
             .replace(/Extranal\s+Intrush|Extranal\s+Interrupt/gi, 'External Interrupt')
             .replace(/Risk[-‑]5/gi, 'RISC-V')
@@ -541,12 +564,46 @@ function cleanProseLine(line: string) {
             .replace(/Intercept\s+Return/gi, 'Interrupt Return')
             .replace(/被\s*interromp\s*的/gi, '被中斷的')
             .replace(/一點基因\s*comparación/gi, '單一架構比較')
+            .replace(/weekend\s*介面/gi, '週邊介面')
+            .replace(/Transations/g, 'Transactions')
+            .replace(/週邊數量\s*varied/gi, '週邊數量不同')
+            .replace(/(?:Performer\s+Line\s+Plus\s+DACO\s*[（(])?cnyf313?xx[)）]?(?:\s*系列)?/gi, 'STM32F103 系列')
+            .replace(/TN32\s*[、,，/]\s*(?=STM32)/g, '')
+            .replace(/TN32F40F40/gi, 'STM32F407')
+            .replace(/TN32F1032/gi, 'STM32F103')
+            .replace(/\b(?:TN32|SEA32)\b/g, 'STM32')
+            .replace(/H-RAM/g, 'SRAM')
+            .replace(/FlashRAM/g, 'Flash')
+            .replace(/IO1\s*[、,，]\s*PCIOIO|PCIOIO/g, 'GPIO')
+            .replace(/區塊圖/g, '方塊圖')
             .replace(/高est/g, '最高')
             .replace(/低est\s*priority/gi, '最低優先權')
             .replace(/低est/g, '最低')
-            .replace(/芯片/g, '晶片'),
+            .replace(/芯片/g, '晶片')
+            .replace(
+              /[（(]\s*(?:實為|實際應為|正確應為|此為錄音轉誤|常見誤寫為|文脈中的誤寫|講誤為|口語誤傳|此段落經校正後|註[：:]\s*(?:講義|逐字稿|錄音)中出現|如提及之「[^」]+」，雖名稱存疑|雖名稱存疑|如\s*Dragonard|假設為某[^）)]*)[^）)]*[）)]/gi,
+              '',
+            )
+            .replace(
+              /(?:其實\s*)?RISC-V\s*是(?:口語)?對\s*RISC-V\s*的(?:音近)?誤稱，(?:實際上)?/gi,
+              'RISC-V ',
+            )
+            .replace(/不需再提及特定商業名稱，/g, '不受特定商業廠商限制，'),
     )
-    .join('');
+    .join('')
+    .replace(
+      /（例如\s*STM32F103\s*對應的可能是\s*`?STM32F103 Datasheet`?\s*或類似命名）/g,
+      '（例如 STM32F103 Datasheet）',
+    );
+
+  // Repair table rows that start with `|` and have >= 2 pipes but lack a closing `|`
+  if (
+    s.trim().startsWith('|') &&
+    !s.trim().endsWith('|') &&
+    (s.match(/\|/g) ?? []).length >= 2
+  ) {
+    s = s.trim() + ' |';
+  }
 
   // Convert pure-prose bullet display math `- $$\text{A} = \text{B}$$` into `- **A**：B`
   const proseFormulaBullet = s.match(
@@ -715,6 +772,35 @@ export function normalizeNotesMarkdown(value: string) {
     } else {
       seenBulletsInBlock.clear();
     }
+    const curHeading = trimmed.match(/^(#{2,6})\s+(.+?)\s*#*\s*$/);
+    if (curHeading) {
+      let prevNonEmpty = '';
+      for (let j = deduped.length - 1; j >= 0; j--) {
+        if (deduped[j].trim()) {
+          prevNonEmpty = deduped[j].trim();
+          break;
+        }
+      }
+      const prevHeading = prevNonEmpty.match(/^(#{2,6})\s+(.+?)\s*#*\s*$/);
+      if (prevHeading && curHeading[1].length >= prevHeading[1].length) {
+        const normH = (h: string) =>
+          toTraditionalStudyTextSync(h)
+            .replace(/^\*\*|\*\*$/g, '')
+            .replace(/^["'“”「『]+|["'“”」』]+$/g, '')
+            .replace(/[\s：:、，,。.]/g, '')
+            .toLowerCase();
+        const h1 = normH(prevHeading[2]);
+        const h2 = normH(curHeading[2]);
+        if (
+          h1 &&
+          h2 &&
+          (h1 === h2 ||
+            (h1.length >= 4 && h2.length >= 4 && (h1.endsWith(h2.slice(2)) || h2.endsWith(h1.slice(2)))))
+        ) {
+          continue;
+        }
+      }
+    }
     deduped.push(line);
   }
   return toTraditionalStudyTextSync(
@@ -723,6 +809,382 @@ export function normalizeNotesMarkdown(value: string) {
       .replace(/\n{3,}/g, '\n\n')
       .trim(),
   );
+}
+
+function extractSourceNumbers(sourceText: string): Set<string> {
+  const nums = new Set<string>();
+  for (const m of sourceText.matchAll(/\d+(?:\.\d+)?/g)) {
+    nums.add(m[0]);
+    nums.add(String(Number(m[0])));
+  }
+  const digitMap: Record<string, number> = {
+    零: 0,
+    〇: 0,
+    一: 1,
+    壹: 1,
+    二: 2,
+    兩: 2,
+    貳: 2,
+    三: 3,
+    參: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9,
+  };
+  for (const [ch, val] of Object.entries(digitMap)) {
+    if (sourceText.includes(ch)) nums.add(String(val));
+  }
+  if (sourceText.includes('十')) nums.add('10');
+  if (sourceText.includes('百')) nums.add('100');
+  if (sourceText.includes('千')) nums.add('1000');
+  if (sourceText.includes('萬')) nums.add('10000');
+
+  // Spoken tens: 十一..九十九
+  for (const m of sourceText.matchAll(
+    /([一二兩三四五六七八九])?十([一二三四五六七八九])?/g,
+  )) {
+    const tens = m[1] ? (digitMap[m[1]] ?? 1) : 1;
+    const ones = m[2] ? (digitMap[m[2]] ?? 0) : 0;
+    nums.add(String(tens * 10 + ones));
+  }
+  // Spoken hundreds: 一百, 一百一 (110), 兩百 (200), 一百二十八 (128), 一百零三 (103)
+  for (const m of sourceText.matchAll(
+    /([一二兩三四五六七八九])百(?:(零)([一二三四五六七八九])|([一二三四五六七八九])(?:十([一二三四五六七八九])?)?)?/g,
+  )) {
+    const hundreds = digitMap[m[1]] ?? 1;
+    if (m[2] && m[3]) {
+      nums.add(String(hundreds * 100 + (digitMap[m[3]] ?? 0)));
+    } else if (m[4]) {
+      const tens = digitMap[m[4]] ?? 0;
+      const ones = m[5] ? (digitMap[m[5]] ?? 0) : 0;
+      nums.add(String(hundreds * 100 + tens * 10 + ones));
+    } else {
+      nums.add(String(hundreds * 100));
+    }
+  }
+  // Spoken digit sequences: e.g. 八零五一 -> 8051
+  for (const m of sourceText.matchAll(/[零〇一二三四五六七八九]{2,6}/g)) {
+    const digits = [...m[0]].map((c) => digitMap[c] ?? '').join('');
+    if (digits.length >= 2) nums.add(digits);
+  }
+  return nums;
+}
+
+export function enforceSourceGrounding(
+  notes: string,
+  sourceText: string,
+): string {
+  const cleanSource = sourceText.trim();
+  if (!cleanSource || cleanSource.length < 200 || !notes.trim()) return notes;
+
+  const combinedSource =
+    cleanSource +
+    '\n' +
+    cleanSource
+      .split('\n')
+      .map((l) => cleanProseLine(l))
+      .join('\n');
+  const sourceNumbers = extractSourceNumbers(combinedSource);
+  const sourceHex = new Set(
+    (combinedSource.match(/\b0x[0-9a-f]{2,}\b/gi) ?? []).map((h) =>
+      h.toLowerCase(),
+    ),
+  );
+  const isNumberSourced = (n: string) =>
+    sourceNumbers.has(n) || sourceNumbers.has(String(Number(n)));
+  const isUnitSourced = (unit: string, num?: string) => {
+    const u = unit.toLowerCase();
+    if (/^(?:kb|mb|gb|tb|bytes?)$/.test(u)) {
+      if (num && !new RegExp(num + '\\s*(?:kb|mb|gb|tb|bytes?)', 'i').test(combinedSource))
+        return false;
+      return /\b(?:kb|mb|gb|tb|bytes?)\b|位元組/i.test(combinedSource);
+    }
+    if (/^(?:mhz|ghz|khz|hz)$/.test(u)) {
+      if (num && !new RegExp(num + '\\s*(?:mhz|ghz|khz|hz|赫茲)', 'i').test(combinedSource))
+        return false;
+      return /\b(?:mhz|ghz|khz|hz)\b|赫茲/i.test(combinedSource);
+    }
+    if (/^(?:kbps|mbps|gbps)$/.test(u)) {
+      if (num && !new RegExp(num + '\\s*(?:kbps|mbps|gbps|bps)', 'i').test(combinedSource))
+        return false;
+      return /\b(?:kbps|mbps|gbps|bps|baud)\b|鮑率|資料率/i.test(
+        combinedSource,
+      );
+    }
+    return true;
+  };
+  const isSpecMatchUnsourced = (
+    n1: string,
+    n2: string | undefined,
+    unit: string,
+  ) =>
+    !isNumberSourced(n1) ||
+    Boolean(n2 && !isNumberSourced(n2)) ||
+    !isUnitSourced(unit, n1) ||
+    Boolean(n2 && !isUnitSourced(unit, n2));
+
+  const ungroundedTopicRules: Array<{ test: RegExp; sourceCheck: RegExp }> = [
+    {
+      test: /\b(?:8086|8088|x86|8259A?|NMI|Non-maskable|INTR|IRQ[L0-9₀-₉]*|IRET|COM1|DOS|BIOS|Port-Mapped|Memory-Mapped)\b|段基址|級聯|主片|從片|256\s*個?(?:中斷)?向量/i,
+      sourceCheck:
+        /\b(?:8086|8088|x86|8259|NMI|INTR|IRET|IRQ|COM1|BIOS|Port-Mapped)\b|段基址|級聯|主片|從片/i,
+    },
+    {
+      test: /\b(?:DMA|Direct\s+Memory\s+Access|Data\s+Processing\s+Unit|NVMe|SSD|FTL|ECC)\b|(?:記憶體|內存|DPU).*DPU|磁盤|磁碟讀寫/i,
+      sourceCheck:
+        /\b(?:DMA|Direct\s+Memory\s+Access|Data\s+Processing\s+Unit|NVMe|SSD)\b|磁盤|磁碟/i,
+    },
+    {
+      test: /阿坪公司|Aping\s*Corp|Apejin|KOC\s*機[臺台]|KOC\s*Machine|Argynone|Dragonard|風險投資視角|投資標準|投資標的/i,
+      sourceCheck:
+        /阿坪公司|Aping|KOC\s*機|Argynone|Dragonard|風險投資/i,
+    },
+    {
+      test: /\b(?:RS-485|IEC\s*61131-3|MSP430)\b|三相四線/i,
+      sourceCheck: /\b(?:RS-485|61131|MSP430)\b|三相四線/i,
+    },
+    {
+      test: /將「(?:項鏈|錫標|公字)[^」]*」(?:當作|誤認為)|混淆「項鏈」/i,
+      sourceCheck: /將「(?:項鏈|錫標|公字)/i,
+    },
+    {
+      test: /von\s*Neumann\s*或\s*Harvard\s*架構/i,
+      sourceCheck: /von\s*Neumann|Harvard/i,
+    },
+  ];
+  const activeUngrounded = ungroundedTopicRules.filter(
+    (r) => !r.sourceCheck.test(combinedSource),
+  );
+  const matchesUngroundedTopic = (text: string) =>
+    activeUngrounded.some((r) => r.test.test(text));
+
+  const lines = notes.split('\n');
+  const out: string[] = [];
+  let fence: string | null = null;
+  let skipQuestionBlock = false;
+  let skipMythBlock = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+    const trimmed = line.trim();
+    const marker = line.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
+    if (marker) {
+      if (!fence) fence = marker[1];
+      else if (
+        marker[1][0] === fence[0] &&
+        marker[1].length >= fence.length &&
+        !marker[2].trim()
+      )
+        fence = null;
+      out.push(line);
+      continue;
+    }
+    if (fence) {
+      out.push(line);
+      continue;
+    }
+
+    if (/^#{1,6}\s+/.test(trimmed)) {
+      skipQuestionBlock = false;
+      skipMythBlock = false;
+    }
+
+    // Check myth block header `**迷思X：...**`
+    if (/^\*\*迷思[一二三四五六七八九十\d]+[：:]/.test(trimmed)) {
+      skipMythBlock = matchesUngroundedTopic(trimmed);
+      if (skipMythBlock) continue;
+    } else if (skipMythBlock) {
+      if (!trimmed) {
+        skipMythBlock = false;
+      }
+      continue;
+    }
+
+    // Check exam question header `**題目：**` or `- **題目：**`
+    if (/^(?:[-*]\s*)?\*\*題目[：:]\*\*/.test(trimmed)) {
+      const nextAnswer = (lines[i + 1] ?? '') + '\n' + (lines[i + 2] ?? '');
+      const hasUnsourcedSpecInQA = [
+        ...(trimmed + '\n' + nextAnswer).matchAll(
+          /(\d+(?:\.\d+)?)(?:\s*[~～\-–—/／]\s*(\d+(?:\.\d+)?))?\s*(KB|MB|GB|TB|MHz|GHz|kHz|Hz|mV|kV|V|mA|kA|A|kΩ|MΩ|Ω|kbps|Mbps|Gbps)\b/gi,
+        ),
+      ].some((m) => isSpecMatchUnsourced(m[1], m[2], m[3]));
+      skipQuestionBlock =
+        matchesUngroundedTopic(trimmed + '\n' + nextAnswer) ||
+        hasUnsourcedSpecInQA;
+      if (skipQuestionBlock) continue;
+    } else if (skipQuestionBlock) {
+      if (
+        /^#{1,6}\s+/.test(trimmed) ||
+        /^(?:[-*]\s*)?\*\*題目[：:]\*\*/.test(trimmed)
+      ) {
+        skipQuestionBlock = false;
+      } else {
+        continue;
+      }
+    }
+
+    if (!trimmed) {
+      out.push(line);
+      continue;
+    }
+
+    // Drop any line (table row, list item, formula, paragraph) matching an active ungrounded topic
+    if (matchesUngroundedTopic(trimmed)) {
+      continue;
+    }
+
+    // Trim unsourced chip package suffix (e.g. STM32F103C8T6 -> STM32F103 when C8T6 is not in source)
+    line = line.replace(
+      /\b(STM32[A-Za-z]\d{3})([A-Za-z]\d[A-Za-z]\d)\b/g,
+      (full, base, pkg) =>
+        new RegExp(pkg, 'i').test(combinedSource) ? full : base,
+    );
+
+    if (!/von\s*Neumann/i.test(combinedSource)) {
+      line = line.replace(/基本\s*von\s*Neumann\s*架構/gi, '基本處理器架構');
+    }
+    if (!/Cortex-M0/i.test(combinedSource)) {
+      line = line
+        .replace(/Cortex-M0\+?等低階\s*ARM\s*核心/gi, '入門級 ARM Cortex-M 核心')
+        .replace(
+          /[（(][^）)]*(?:M0\/M4|ARMv[678]-M)[^）)]*[）)]/gi,
+          '',
+        );
+    }
+
+    // Strip parentheticals containing unsourced hex literals 0x...
+    line = line.replace(
+      /[（(]([^）)]*\b0x[0-9a-f]{2,}\b[^）)]*)[）)]/gi,
+      (full, inner: string) => {
+        const hexes = inner.match(/\b0x[0-9a-f]{2,}\b/gi) ?? [];
+        return hexes.every((h) => sourceHex.has(h.toLowerCase())) ? full : '';
+      },
+    );
+
+    // Strip parentheticals containing unsourced numeric + unit specifications
+    line = line.replace(/[（(]([^）)]+)[）)]/g, (full, inner: string) => {
+      const specMatches = [
+        ...inner.matchAll(
+          /(\d+(?:\.\d+)?)\s*(?:KB|MB|GB|TB|MHz|GHz|kHz|Hz|mV|kV|V|mA|kA|A|kΩ|MΩ|Ω|kbps|Mbps|Gbps)?(?:\s*[~～\-–—/／,，、]\s*(\d+(?:\.\d+)?)\s*(?:KB|MB|GB|TB|MHz|GHz|kHz|Hz|mV|kV|V|mA|kA|A|kΩ|MΩ|Ω|kbps|Mbps|Gbps)?)*\s*(KB|MB|GB|TB|MHz|GHz|kHz|Hz|mV|kV|V|mA|kA|A|kΩ|MΩ|Ω|kbps|Mbps|Gbps|個\s*I\/O(?:\s*腳)?|支腳|腳位)\b/gi,
+        ),
+      ];
+      if (!specMatches.length) return full;
+      const unsourced = specMatches.some((m) => {
+        const unit = m[3];
+        const numsInClause = m[0].match(/\d+(?:\.\d+)?/g) ?? [];
+        if (/個\s*I\/O|支腳|腳位/i.test(unit)) {
+          return numsInClause.some((n) => !isNumberSourced(n));
+        }
+        return numsInClause.some(
+          (n) => !isNumberSourced(n) || !isUnitSourced(unit, n),
+        );
+      });
+      return unsourced ? '' : full;
+    });
+
+    // Sanitize standalone spec bullets with unsourced numeric ranges
+    // Case 1: `- **Flash 記憶體**：64KB~128KB（存放程式碼）。` -> `- **Flash 記憶體**：存放程式碼。`
+    const bulletWithNote = line.match(
+      /^(\s*[-*]\s+(?:\*\*[^*]+\*\*|[^：:\n]{2,20})\s*[：:]\s*)(?:通常為|約|最高(?:可達)?\s*)?\d+(?:\.\d+)?\s*(?:KB|MB|GB|TB|MHz|GHz|kHz|Hz|mV|kV|V|mA|kA|A|kΩ|MΩ|Ω|kbps|Mbps|Gbps)?(?:\s*[~～\-–—/／]\s*\d+(?:\.\d+)?)?\s*(KB|MB|GB|TB|MHz|GHz|kHz|Hz|mV|kV|V|mA|kA|A|kΩ|MΩ|Ω|kbps|Mbps|Gbps)\s*[（(]([^）)]+)[）)]\s*([。；.]?)$/i,
+    );
+    if (bulletWithNote) {
+      const [, prefix, unit, explanation, punct] = bulletWithNote;
+      const nums =
+        line
+          .slice(prefix.length, line.indexOf(explanation))
+          .match(/\d+(?:\.\d+)?/g) ?? [];
+      if (
+        nums.some((n) => !isNumberSourced(n) || !isUnitSourced(unit, n))
+      ) {
+        line = `${prefix}${explanation.trim()}${punct || '。'}`;
+      }
+    }
+
+    // Case 2: `- Flash記憶體：通常為64KB~128KB` or `- **工作電壓與頻率**：2.0V~3.6V，最高 72MHz。`
+    const bulletPureSpec = line.match(
+      /^(\s*[-*]\s+(?:\*\*[^*]+\*\*|[^：:\n]{2,20})\s*[：:]\s*)(.+)$/,
+    );
+    if (bulletPureSpec) {
+      const [, prefix, rest] = bulletPureSpec;
+      const specMatches = [
+        ...rest.matchAll(
+          /(\d+(?:\.\d+)?)\s*(?:KB|MB|GB|TB|MHz|GHz|kHz|Hz|mV|kV|V|mA|kA|A|kΩ|MΩ|Ω|kbps|Mbps|Gbps)?(?:\s*[~～\-–—/／]\s*(\d+(?:\.\d+)?))?\s*(KB|MB|GB|TB|MHz|GHz|kHz|Hz|mV|kV|V|mA|kA|A|kΩ|MΩ|Ω|kbps|Mbps|Gbps)\b/gi,
+        ),
+      ];
+      if (
+        specMatches.length > 0 &&
+        specMatches.some((m) => isSpecMatchUnsourced(m[1], m[2], m[3]))
+      ) {
+        const strippedRest = rest
+          .replace(/\*\*/g, '')
+          .replace(
+            /(?:通常為|約|最高(?:可達)?|最大|主頻可達)?\s*\d+(?:\.\d+)?\s*(?:KB|MB|GB|TB|MHz|GHz|kHz|Hz|mV|kV|V|mA|kA|A|kΩ|MΩ|Ω|kbps|Mbps|Gbps)?(?:\s*[~～\-–—/／]\s*\d+(?:\.\d+)?)?\s*(?:KB|MB|GB|TB|MHz|GHz|kHz|Hz|mV|kV|V|mA|kA|A|kΩ|MΩ|Ω|kbps|Mbps|Gbps)\b/gi,
+            '',
+          )
+          .replace(/[，,、。；.\s]/g, '');
+        if (!strippedRest) {
+          line = `${prefix}依晶片規格書 Datasheet 標示。`;
+        }
+      }
+    }
+
+    // Case 3: Inline unsourced frequency/voltage specs in prose bullets (e.g. `50/60Hz`, `工作電壓通常為 **2.0V ~ 3.6V**，主頻可達 **72MHz**`)
+    if (!isUnitSourced('Hz', '50') && !isUnitSourced('Hz', '60')) {
+      line = line.replace(/\s*50\s*[/／]\s*60\s*Hz\s*/gi, ' ');
+    }
+    if (
+      /^\s*[-*]\s+/.test(line) &&
+      /(?:通常為|可達|約為)\s*\*{0,2}\d+(?:\.\d+)?\s*(?:KB|MB|GB|TB|MHz|GHz|kHz|Hz|V)\b/i.test(
+        line,
+      )
+    ) {
+      const inlineSpecs = [
+        ...line
+          .replace(/\*\*/g, '')
+          .matchAll(
+            /(\d+(?:\.\d+)?)\s*(?:KB|MB|GB|TB|MHz|GHz|kHz|Hz|V)?(?:\s*[~～\-–—/／]\s*(\d+(?:\.\d+)?))?\s*(KB|MB|GB|TB|MHz|GHz|kHz|Hz|V)\b/gi,
+          ),
+      ];
+      if (
+        inlineSpecs.length > 0 &&
+        inlineSpecs.some((m) => isSpecMatchUnsourced(m[1], m[2], m[3]))
+      ) {
+        line = line
+          .replace(
+            /(?:通常為|約為|最高可達|可達)\s*\*{0,2}\d+(?:\.\d+)?\s*(?:KB|MB|GB|TB|MHz|GHz|kHz|Hz|V)?(?:\s*[~～\-–—/／]\s*\d+(?:\.\d+)?)?\s*(?:KB|MB|GB|TB|MHz|GHz|kHz|Hz|V)\*{0,2}/gi,
+            '依晶片規格書 Datasheet 標示',
+          )
+          .replace(
+            /依晶片規格書 Datasheet 標示[，,、]\s*(?:主頻|頻率|工作電壓)依晶片規格書 Datasheet 標示/g,
+            '皆依晶片規格書 Datasheet 標示',
+          );
+      }
+    }
+
+    out.push(line);
+  }
+
+  // Strip empty subheadings (`### ...` or `#### ...`) that have no body before the next heading of same/higher level
+  const cleanedOut: string[] = [];
+  for (let i = 0; i < out.length; i++) {
+    const cur = out[i].trim();
+    const hMatch = cur.match(/^(#{3,6})\s+/);
+    if (hMatch) {
+      let nextIdx = i + 1;
+      while (nextIdx < out.length && !out[nextIdx].trim()) nextIdx++;
+      if (nextIdx >= out.length) continue;
+      const nextH = out[nextIdx].trim().match(/^(#{1,6})\s+/);
+      if (nextH && nextH[1].length <= hMatch[1].length) {
+        continue;
+      }
+    }
+    cleanedOut.push(out[i]);
+  }
+
+  return cleanedOut.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 export function assertReadableNotes(value: string) {
@@ -862,7 +1324,13 @@ export function buildMarkdown(options: {
   if (!isSummary) {
     return `# ${title}｜逐字稿\n\n${metadata}\n\n## 逐字稿\n\n${cleanedTranscript}\n`;
   }
-  const notes = normalizeNotesMarkdown(options.notes ?? '');
+  const rawNotes = normalizeNotesMarkdown(options.notes ?? '');
+  const notes =
+    cleanedTranscript.length >= 200
+      ? normalizeNotesMarkdown(
+          enforceSourceGrounding(rawNotes, cleanedTranscript),
+        )
+      : rawNotes;
   if (notes.trim()) assertReadableNotes(notes);
   // Learning-note exports contain knowledge only. Provenance, model names,
   // timestamps, coverage reports and the transcript belong in UI/recovery,

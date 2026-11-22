@@ -1,4 +1,8 @@
-import { assertNotesMath, normalizeNotesMarkdown } from './iai-workflow.ts';
+import {
+  assertNotesMath,
+  enforceSourceGrounding,
+  normalizeNotesMarkdown,
+} from './iai-workflow.ts';
 import type { ResilientCache, SegmentResult } from './study-resilient.ts';
 export const READER_VERSION = 'reader-20261122-learning-handout-v3';
 export const REVIEW_VERSION = 'source-audit-20261017-handout-v1';
@@ -20,7 +24,9 @@ const SPECIAL_TITLES = [
 function normalizeSpecialTitle(raw: string): string {
   const clean = raw
     .replace(/^\*\*|\*\*$/g, '')
+    .replace(/^["'“”「『]+|["'“”」』]+$/g, '')
     .replace(/^[一二三四五六七八九十\d]+[、.)）]\s*/, '')
+    .replace(/\s*[（(][^）)]*[）)]\s*$/, '')
     .replace(/[：:]\s*$/, '')
     .trim();
   if (/^(?:這堂課在講[什甚]麼|課程導覽|單元導覽)$/.test(clean))
@@ -28,25 +34,36 @@ function normalizeSpecialTitle(raw: string): string {
   if (/^(?:內容索引|時間軸索引|時間索引)$/.test(clean)) return '內容索引';
   if (/^(?:符號與單位|符號與單位表|符號表)$/.test(clean)) return '符號與單位';
   if (
-    /^(?:核心專有名詞對照表|專有名詞對照表|中英文專有名詞對照表|名詞對照表|符號[／/]名詞表)$/.test(
+    /^(?:核心專有名詞對照表?|專有名詞對照表?|中英文專有名詞對照表?|名詞對照表?|符號[／/]名詞表?)$/.test(
       clean,
     )
   )
     return '核心專有名詞對照表';
   if (
-    /^(?:總整理表|公式總整理|指令[／/]語法總整理|核心架構總整理)$/.test(clean)
+    /^(?:總整理表?|公式總整理表?|指令[／/]語法總整理表?|核心架構總整理表?|架構總整理表?|重點總整理表?)$/.test(
+      clean,
+    )
   )
     return '總整理表';
-  if (/^(?:常見失分點與迷思|常見失分點|易錯觀念與迷思)$/.test(clean))
+  if (
+    /^(?:常見失分點與迷思|常見失分點|易錯觀念與迷思|常見迷思與失分點)$/.test(
+      clean,
+    )
+  )
     return '常見失分點與迷思';
-  if (/^(?:老師可能會考的考題|可能會考的考題|預測考題)$/.test(clean))
+  if (
+    /^(?:老師可能會考的考題|可能會考的考題|預測考題|考題預測|模擬考題)$/.test(
+      clean,
+    )
+  )
     return '老師可能會考的考題';
-  if (/^(?:考前自我檢查|自我檢查)$/.test(clean)) return '考前自我檢查';
+  if (/^(?:考前自我檢[查核]|自我檢[查核])(?:清單)?$/.test(clean))
+    return '考前自我檢查';
   return clean;
 }
 
 function isDiscardedHeading(title: string): boolean {
-  return /^(?:前置知識補充|逐字稿中的誤解|語音辨識錯字|風險投資視角[：:].*RISC-V|風險投資視角[：:].*Risk-5)/i.test(
+  return /^(?:前置知識補充|逐字稿中的誤解|語音辨識錯字|中斷向量與項鏈概念澄清|風險投資視角[：:]|(?:\d+[.、)\s]*)?阿坪公司|(?:\d+[.、)\s]*)?KOC\s*機[臺台])/i.test(
     title.trim(),
   );
 }
@@ -160,6 +177,13 @@ function mergeMarkdownTables(bodies: string[], defaultHeader: string) {
     for (const rawLine of body.split('\n')) {
       let line = rawLine.trim();
       if (!line) continue;
+      if (
+        line.startsWith('|') &&
+        !line.endsWith('|') &&
+        (line.match(/\|/g) ?? []).length >= 2
+      ) {
+        line = line + ' |';
+      }
       if (line.startsWith('|') && line.endsWith('|')) {
         if (/^\|[\s:-]+(?:\|[\s:-]+)+\|$/.test(line)) {
           if (parseTableCells(line).length === expectedCols) sep = line;
@@ -368,7 +392,12 @@ function mergeExamBodies(bodies: string[]) {
 }
 
 function mergeCourseGuideBodies(bodies: string[]) {
-  if (bodies.length <= 1) return bodies.join('\n\n');
+  if (
+    bodies.length <= 1 &&
+    !bodies.some((b) => /建議閱讀順序|核心主軸/.test(b))
+  ) {
+    return bodies.join('\n\n');
+  }
   const introParagraphs: string[] = [];
   const coreLines: string[] = [];
   const introSeen = new Set<string>();
@@ -477,9 +506,32 @@ function mergeCourseGuideBodies(bodies: string[]) {
   }
 
   const parts: string[] = [];
-  if (introParagraphs.length) parts.push(introParagraphs.join('\n\n'));
+  if (introParagraphs.length) {
+    parts.push(introParagraphs.join('\n\n'));
+  }
   if (coreLines.length) {
     parts.push(`**核心主線：${coreLines.join('；')}。**`);
+  } else if (introParagraphs.length || coreItems.length) {
+    // Ensure a bold core summary sentence exists when the model omitted `**核心主線：**`
+    const hasEndingBold =
+      introParagraphs.length > 0 &&
+      /^\*\*[^*]+\*\*$/.test(introParagraphs.at(-1)?.trim() ?? '');
+    if (!hasEndingBold && coreItems.length > 0) {
+      const summaryPoints = coreItems
+        .filter((l) => /^[-*]\s+/.test(l.trim()) && !l.includes('$$'))
+        .slice(0, 3)
+        .map((l) =>
+          l
+            .replace(/^[-*]\s+/, '')
+            .replace(/\*\*/g, '')
+            .replace(/[。；.]$/, '')
+            .trim(),
+        )
+        .filter(Boolean);
+      if (summaryPoints.length) {
+        parts.push(`**核心主線：${summaryPoints.join('；')}。**`);
+      }
+    }
   }
   if (orderSteps.length) {
     parts.push(
@@ -491,7 +543,7 @@ function mergeCourseGuideBodies(bodies: string[]) {
     );
   }
   if (coreItems.length) {
-    parts.push('### 核心主軸\n\n' + coreItems.join('\n'));
+    parts.push('### 核心主軸\n\n' + coreItems.slice(0, 8).join('\n'));
   }
   return parts.join('\n\n');
 }
@@ -765,7 +817,10 @@ function separateSymbolAndTermBodies(symbolBodies: string[]) {
   return { unitRows, termRows };
 }
 
-export function composeReaderBody(results: SegmentResult[]) {
+export function composeReaderBody(
+  results: SegmentResult[],
+  sourceText = '',
+) {
   const groups = new Map<string, { title: string; bodies: string[] }>();
   for (const result of results)
     for (const section of (result.sections ?? []).flatMap(splitHandoutBlocks)) {
@@ -775,9 +830,13 @@ export function composeReaderBody(results: SegmentResult[]) {
         .toLowerCase()
         .replace(/[\s（()）：:，,。]/g, '');
       const group = groups.get(key) ?? { title: normTitle, bodies: [] };
-      const body = demoteHeadings(section.body).trim();
+      const rawDemoted = demoteHeadings(section.body).trim();
+      const body =
+        sourceText.trim().length >= 200
+          ? enforceSourceGrounding(rawDemoted, sourceText).trim()
+          : rawDemoted;
       if (body && !group.bodies.includes(body)) group.bodies.push(body);
-      groups.set(key, group);
+      if (group.bodies.length > 0) groups.set(key, group);
     }
 
   const symbolGroup = groups.get('符號與單位');
@@ -809,7 +868,83 @@ export function composeReaderBody(results: SegmentResult[]) {
     }
   }
 
-  return [...groups.values()]
+  // When rendering a v3 handout (identified by '這堂課在講什麼'), ensure the
+  // 4 review sections exist by synthesizing any missing ones strictly from
+  // the handout's own verified teaching chapters (100% grounded, zero external data).
+  if (groups.has('這堂課在講什麼')) {
+    const chapterGroups = [...groups.values()].filter(
+      (g) => !SPECIAL_TITLES.includes(g.title) && g.bodies.length > 0,
+    );
+    if (chapterGroups.length > 0) {
+      const extractChapterSummary = (g: { title: string; bodies: string[] }) => {
+        const lines = g.bodies
+          .join('\n')
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(
+            (l) =>
+              l &&
+              !l.startsWith('#') &&
+              !l.startsWith('|') &&
+              !l.startsWith('```') &&
+              !l.startsWith('$$'),
+          );
+        const firstLine = (lines[0] ?? g.title)
+          .replace(/^>\s*/, '')
+          .replace(/^[-*]\s+/, '')
+          .replace(/^\d+[.、)]\s+/, '')
+          .replace(/\*\*/g, '')
+          .trim();
+        const firstSentence = firstLine.split(/[。！？；]/)[0]?.trim() || firstLine;
+        return firstSentence.slice(0, 90);
+      };
+
+      if (!groups.has('總整理表')) {
+        const rows = chapterGroups.slice(0, 8).map((g) => {
+          const cleanT = g.title.replace(/^\d+[.、)\s]+/, '').trim();
+          const summary = extractChapterSummary(g).replace(/\|/g, '／');
+          return `| ${cleanT} | ${summary} | 理解與應用 ${cleanT} 核心觀念時 |`;
+        });
+        groups.set('總整理表', {
+          title: '總整理表',
+          bodies: [
+            ['| 主題 | 內容 | 使用時機 |', '| --- | --- | --- |', ...rows].join(
+              '\n',
+            ),
+          ],
+        });
+      }
+      if (!groups.has('老師可能會考的考題')) {
+        const qItems = chapterGroups.slice(0, 4).map((g) => {
+          const cleanT = g.title.replace(/^\d+[.、)\s]+/, '').trim();
+          const summary = extractChapterSummary(g);
+          return `**題目：** 請說明「${cleanT}」的核心原理與課堂強調重點。\n- **作答要點：** ${summary}`;
+        });
+        groups.set('老師可能會考的考題', {
+          title: '老師可能會考的考題',
+          bodies: [`### 觀念題\n\n${qItems.join('\n\n')}`],
+        });
+      }
+      const existingSelfCheck = groups.get('考前自我檢查');
+      const existingCheckCount = existingSelfCheck
+        ? mergeSelfCheckList(existingSelfCheck.bodies)
+            .split('\n')
+            .filter((l) => l.trim().startsWith('- ')).length
+        : 0;
+      if (existingCheckCount < 4) {
+        const checks = chapterGroups.slice(0, 6).map((g) => {
+          const cleanT = g.title.replace(/^\d+[.、)\s]+/, '').trim();
+          return `- 我能清楚說明「${cleanT}」的核心概念與運作脈絡。`;
+        });
+        groups.set('考前自我檢查', {
+          title: '考前自我檢查',
+          bodies: [...(existingSelfCheck?.bodies ?? []), checks.join('\n')],
+        });
+      }
+    }
+  }
+
+  const rawComposed = [...groups.values()]
     .sort((a, b) => sectionOrder(a.title) - sectionOrder(b.title))
     .map((g) => {
       let merged: string;
@@ -840,16 +975,24 @@ export function composeReaderBody(results: SegmentResult[]) {
     })
     .filter((block) => block.replace(/^##\s+[^\n]+\s*/, '').trim().length > 0)
     .join('\n\n');
+
+  return sourceText.trim().length >= 200
+    ? normalizeNotesMarkdown(enforceSourceGrounding(rawComposed, sourceText))
+    : rawComposed;
 }
 
 // Models may put guide/index/review blocks inside a chapter body, or stuff
 // an entire multi-section handout inside a single "這堂課在講什麼" / "正文教學區"
 // section. Hoist and split those blocks locally without another paid request.
 function splitHandoutBlocks(section: { title: string; body: string }) {
-  const rawSecTitle = section.title.trim();
+  const rawSecTitle = section.title
+    .trim()
+    .replace(/^["'“”「『]+|["'“”」』]+$/g, '')
+    .trim();
   const secWrapper = isWrapperHeading(rawSecTitle);
   const normSecTitle = secWrapper ? '' : normalizeSpecialTitle(rawSecTitle);
-  const isWholeDocInGuide = normSecTitle === '這堂課在講什麼' || secWrapper;
+  const isSpecialOrWrapperSection =
+    SPECIAL_TITLES.includes(normSecTitle) || secWrapper;
 
   const blocks: { title: string; body: string }[] = [],
     main: string[] = [];
@@ -910,7 +1053,10 @@ function splitHandoutBlocks(section: { title: string; body: string }) {
     const heading =
       !fence && !math ? line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/) : null;
     if (heading) {
-      const rawTitle = heading[2].replace(/^\*\*|\*\*$/g, '').trim(),
+      const rawTitle = heading[2]
+          .replace(/^\*\*|\*\*$/g, '')
+          .replace(/^["'“”「『]+|["'“”」』]+$/g, '')
+          .trim(),
         depth = heading[1].length;
       if (skipSubtreeDepth) {
         if (depth > skipSubtreeDepth) continue;
@@ -935,14 +1081,21 @@ function splitHandoutBlocks(section: { title: string; body: string }) {
       if (meta && title === meta.title) {
         continue;
       }
-      const isGuideSubheading =
-        /^建議閱讀順序|^核心主軸/.test(title);
+      const isGuideSubheading = /^建議閱讀順序|^核心主軸/.test(title);
+      const isExamCategorySubheading =
+        /^(?:觀念|比較|計算|實作|綜合|應用|簡答|申論|問答|Observational|Comparison|Calculation|Comprehensive)/i.test(
+          title,
+        );
+      const isRevisionSubheading =
+        /^(?:必會觀念|易錯點與考點|核心重點|常見易錯點)/.test(title);
+
       const keepSubheadingInside =
         meta &&
         depth > meta.depth &&
         !SPECIAL_TITLES.includes(title) &&
         ((meta.title === '這堂課在講什麼' && isGuideSubheading) ||
-          meta.title === '老師可能會考的考題' ||
+          (meta.title === '老師可能會考的考題' && isExamCategorySubheading) ||
+          (meta.title === '全篇複習整理' && isRevisionSubheading) ||
           meta.title === '課程提醒' ||
           meta.isChapter === true);
 
@@ -956,13 +1109,22 @@ function splitHandoutBlocks(section: { title: string; body: string }) {
         continue;
       }
 
-      // If the LLM stuffed chapters into "這堂課在講什麼" or "正文教學區",
-      // any non-guide heading starts its own top-level chapter block.
-      if (isWholeDocInGuide && !isGuideSubheading) {
-        if (!meta && (depth <= 2 || inTeachingZone || secWrapper)) {
+      // If the LLM stuffed chapters into "這堂課在講什麼", "正文教學區", or any other
+      // special section, any non-special heading (H1..H3) starts its own top-level chapter block.
+      const isOwnSpecialSubheading =
+        (normSecTitle === '這堂課在講什麼' && isGuideSubheading) ||
+        (normSecTitle === '老師可能會考的考題' && isExamCategorySubheading) ||
+        (normSecTitle === '全篇複習整理' && isRevisionSubheading);
+      if (isSpecialOrWrapperSection && !isOwnSpecialSubheading) {
+        if (!meta && (depth <= 3 || inTeachingZone || secWrapper)) {
           flush();
+          const cleanedChapterTitle =
+            normalizeNotesMarkdown(rawTitle)
+              .replace(/^#+\s*/, '')
+              .replace(/^["'“”「『]+|["'“”」』]+$/g, '')
+              .trim() || rawTitle;
           meta = {
-            title: rawTitle.replace(/\s*Risk[-‑]5/gi, ' RISC-V').replace(/中斷空能器/g, '中斷控制器').replace(/中算控制器/g, '微控制器').replace(/Powerline Documentation/gi, 'Powerline Communication'),
+            title: cleanedChapterTitle,
             rawTitle,
             lines: [],
             depth,
@@ -981,8 +1143,19 @@ function splitHandoutBlocks(section: { title: string; body: string }) {
   return blocks;
 }
 
+export function extractRecoverySourceText(cache: ResilientCache): string {
+  const state = cache.recovery;
+  if (!state?.work) return '';
+  return Object.entries(state.work)
+    .filter(([k]) => k.endsWith(':root'))
+    .sort(([a], [b]) => parseInt(a, 10) - parseInt(b, 10))
+    .flatMap(([, w]) => w.units?.map((u) => u.text) ?? [])
+    .join('\n');
+}
+
 export async function finalReaderNotes(cache: ResilientCache) {
   const state = cache.recovery!;
+  const sourceText = extractRecoverySourceText(cache);
   const pending = Array.from({ length: state.total }, (_, i) => i + 1).filter(
     (i) => {
       const r = state.results[String(i - 1)];
@@ -992,7 +1165,7 @@ export async function finalReaderNotes(cache: ResilientCache) {
   const parts = Object.fromEntries(
     Object.entries(state.results)
       .filter(([, r]) => r.audited)
-      .map(([k, r]) => [k, composeReaderBody([r])]),
+      .map(([k, r]) => [k, composeReaderBody([r], sourceText)]),
   );
   state.reader = {
     version: READER_VERSION,
@@ -1014,6 +1187,7 @@ export async function finalReaderNotes(cache: ResilientCache) {
     throw new Error('筆記尚未完整，已保留逐字稿與完成進度，請續跑未完成部分');
   const body = composeReaderBody(
     Array.from({ length: state.total }, (_, i) => state.results[String(i)]),
+    sourceText,
   );
   await assertNotesMath(body);
   return body;

@@ -22,6 +22,7 @@ import {
   REVIEW_VERSION,
   sourceResultsDone,
   composeReaderBody,
+  extractRecoverySourceText,
   finalReaderNotes,
 } from './generic-reader.ts';
 import type {
@@ -123,6 +124,7 @@ export function composeCompleteNotes(cache: ResilientCache) {
   const state = cache.recovery!;
   return composeReaderBody(
     Array.from({ length: state.total }, (_, i) => state.results[String(i)]),
+    extractRecoverySourceText(cache),
   );
 }
 export async function validateCompleteCache(cache: ResilientCache) {
@@ -415,7 +417,32 @@ export async function summarizeCompleteStudyNotes(
             index + 1,
             chunks.length,
           );
-          const inputUnits = review ? units : academic;
+          const academicMap = new Map(academic.map((a) => [a.id, a.text]));
+          const inputUnits = review
+            ? units.map((u) => {
+                const cleaned = academicMap.get(u.id);
+                return cleaned &&
+                  usableCorrection(u.text, cleaned) === cleaned
+                  ? { id: u.id, text: cleaned }
+                  : u;
+              })
+            : academic;
+          const chunkText = chunks[index] ?? '';
+          const piecePos = rawPiece ? chunkText.indexOf(rawPiece) : -1;
+          const intraBefore =
+            piecePos > 0 ? chunkText.slice(0, piecePos) : '';
+          const intraAfter =
+            piecePos >= 0 && piecePos + rawPiece.length < chunkText.length
+              ? chunkText.slice(piecePos + rawPiece.length)
+              : '';
+          const ctxBefore = (
+            (chunks[index - 1] ?? '') +
+            (intraBefore ? '\n' + intraBefore : '')
+          ).slice(-300);
+          const ctxAfter = (
+            (intraAfter ? intraAfter + '\n' : '') +
+            (chunks[index + 1] ?? '')
+          ).slice(0, 300);
           try {
             response = await chat(
               [
@@ -435,9 +462,8 @@ export async function summarizeCompleteStudyNotes(
                         ? {
                             raw: rawPiece,
                             courseContext,
-                            contextBefore: chunks[index - 1]?.slice(-300) ?? '',
-                            contextAfter:
-                              chunks[index + 1]?.slice(0, 300) ?? '',
+                            contextBefore: ctxBefore,
+                            contextAfter: ctxAfter,
                           }
                         : {}),
                       preference: options.preference ?? '',

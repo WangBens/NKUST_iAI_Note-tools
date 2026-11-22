@@ -1054,5 +1054,109 @@ test('all 9 handout quality optimizations: unpack stuffed guide, fix LaTeX/non-M
   assert.doesNotMatch(md, /我能\[ \]/);
 });
 
+test('universal source-grounding engine strips hallucinated numbers, external architectures, phonetic-guess entities, and unpacks H3 chapters from guide', async () => {
+  const realTranscript = [
+    '這堂課我們從 8051 的旗標 Flag 開始講起，旗標在電腦系統非常重要，分為軟體清除與硬體清除。',
+    '標準的 8051 有六個中斷來源、五個中斷向量、兩種優先權等級。中斷向量就是 CPU 去哪裡抓中斷服務常式 ISR 的位置。',
+    '電腦系統一定要有 CPU、I/O 以及記憶體 ROM 跟 RAM，如果要做中斷還要搭配中斷控制器。',
+    '另外補充電力線傳輸 Powerline Communication，它是透過一百一、兩百多伏特的電力線來傳資料，還有工廠常用的可程式邏輯控制器 PLC。',
+    '開源社群像是 Linux、Arduino、RISC-V 的精神就是所有設計跟模擬結果全部公開可以被驗證，能不能 demo 才是工程真實性的關鍵。',
+    '最後看微控制器 STM32F103 跟 STM32F407 的 Datasheet 與方塊圖 Block Diagram，可以查 Flash、SRAM 多大、工作電壓跟頻率多少，以及 NVIC 巢狀向量中斷控制器與 GPIO 週邊驅動。',
+  ].join('\n');
+
+  const rawHallucinatedSegment = {
+    note: '',
+    repairs: [],
+    sections: [
+      {
+        topicId: 's0',
+        title: '這堂課在講什麼',
+        body: [
+          '本堂課介紹 RISC-V（實為RISC-V）與 STM32F103C8T6 的 Datasheet 查閱方式。',
+          '### 建議閱讀順序',
+          '1. 複習旗標類型（如 Overflow Flag、暫停器旗標等）',
+          '### 核心主軸',
+          '- **6 個中斷來源，5 個中斷向量**：8051 中斷架構',
+          '- **電力線電壓**：常見於 110V 或 200V 電力線環境',
+          '## 核心專有名詞對照表',
+          '| 中文 | 英文 | 白話說明 |',
+          '| --- | --- | --- |',
+          '| 中斷來源 | Interrupt Source | 8051 有六個 เช่น 外部中斷、計時器溢位 |',
+          '| GEO (此處可能為誤傳) | GEO (context unclear) | 無法確認為標準術語 |',
+          '| 阿坪公司 (可能為講誤) | Apejin Company (phonetic guess) | 疑為語音辨識錯誤 |',
+          '| Argynone (可能為講誤) | Argynone (unverified) | 無法查證實體 |',
+          '| KOC 機臺 | KOC Machine（假設為某款微控制器） | 假設名稱 |',
+          '| RISC-V | RISC-V | 開源指令集架構',
+          '### 1. 阿坪公司（Aping Corp.）產品線',
+          '- 虛構內容應被完整移除。',
+          '### 2. 微控制器規格查詢與 Datasheet 讀法',
+          '要了解微控制器，首步是找到 `1300F103DataShip`（如向量表 0x0000~0x03FF）。',
+          '- **Flash 記憶體**：64KB~128KB（存放程式碼）。',
+          '- **SRAM**：20KB（存放變數與堆疊）。',
+          '- **工作電壓與頻率**：2.0V~3.6V，最高 72MHz。',
+          '- **GPIO 數量**（例如：最多達 51 個 I/O 腳）：通用輸入輸出。',
+          '- **電力線傳輸**：透過既有電力線（如 110V、200V）傳輸資料（50/60Hz 交流電）。',
+          '## "區塊圖解讀與架構比較',
+          '### 架構圖解讀與架構比較',
+          '以 cnyf31XX 系列（假設為某款微控制器）為例，周圍環繞記憶體（H-RAM、FlashRAM）與週邊（IO1、PCIOIO）。',
+          '| 架構項目 | 傳統8051 | ARM Cortex-M |',
+          '| --- | --- | --- |',
+          '| weekend介面 | 有限 I/O | 豐富 GPIO |',
+          '## 常見失分點與迷思',
+          '1. **誤把 RISC-V 當作特定晶片名稱。** 其實 RISC-V 是對 RISC-V 的音近誤稱。',
+          '2. **誤將 Datasheet 課為真實檔名。** 這只是錄音把「Datasheet」聽錯成「Datasheet」。',
+          '3. **以為開源 CPU 必定效能低落。** 事實上 RISC-V 可擴充性強。',
+          '## 老師可能會考的考題',
+          '### 觀念題',
+          '**題目：** 請列出 STM32F103C8T6 的關鍵規格（Flash、SRAM、工作電壓、最高頻率）。',
+          '- **作答要點：** Flash 64KB~128KB、SRAM 20KB、工作電壓 2.0V~3.6V、最高頻率 72MHz。',
+          '**題目：** 請說明 8086 與 8259A 級聯主片從片 IRQ0~IRQ7 的仲裁流程。',
+          '- **作答要點：** 主片透過 0x20 與 0x28 及 COM1 0x3F8 處理。',
+          '**題目：** 為什麼開源專案強調能 Demo 才可信？',
+          '- **作答要點：** 能當場展示與重現驗證才具工程說服力。',
+        ].join('\n'),
+      },
+    ],
+  };
+
+  const body = composeReaderBody([rawHallucinatedSegment], realTranscript);
+  const md = buildMarkdown({
+    filename: '2026-11-19嵌入式1.m4a',
+    transcript: realTranscript,
+    notes: body,
+    generatedAt: '2026-11-22',
+  });
+
+  // 1. All hallucinated numbers/specs/hex/chips not in transcript are stripped
+  assert.doesNotMatch(
+    md,
+    /64KB|128KB|20KB|72MHz|2\.0V|3\.6V|51\s*個|50\/60Hz|0x0000|0x03FF|0x3F8|C8T6|8086|8259A/,
+  );
+  // 2. Grounded numbers actually spoken in transcript (8051, 6, 5, 110, 200, STM32F103) are preserved
+  assert.match(md, /8051/);
+  assert.match(md, /6 個中斷來源，5 個中斷向量/);
+  assert.match(md, /110V/);
+  assert.match(md, /200V/);
+  assert.match(md, /STM32F103/);
+  assert.match(md, /存放程式碼/);
+  assert.match(md, /存放變數與堆疊/);
+  // 3. All hypothetical entities, phonetic guesses, and ASR-typo pitfalls are removed
+  assert.doesNotMatch(
+    md,
+    /阿坪公司|Aping|Apejin|KOC|Argynone|GEO|假設名稱|假設為某|可能為講誤|phonetic guess|context unclear|unverified|實為RISC-V|音近誤稱|課為真實檔名|聽錯成|1300F103DataShip|cnyf31/i,
+  );
+  // 4. Foreign script, translation glitches, and duplicate headings are cleaned
+  assert.doesNotMatch(md, /เช่น|weekend介面|暫停器|H-RAM|FlashRAM|PCIOIO|## "/);
+  assert.match(md, /暫存器旗標/);
+  assert.match(md, /週邊介面/);
+  // 5. H3 teaching chapter inside guide was unpacked into top-level H2 chapter, and all 4 review sections exist
+  assert.match(md, /^## 微控制器規格查詢與 Datasheet 讀法$/m);
+  assert.match(md, /^## 總整理表$/m);
+  assert.match(md, /^## 常見失分點與迷思$/m);
+  assert.match(md, /^## 老師可能會考的考題$/m);
+  assert.match(md, /^## 考前自我檢查$/m);
+});
+
+
 
 

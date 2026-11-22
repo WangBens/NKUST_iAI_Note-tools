@@ -178,9 +178,40 @@ function mergeCourseGuideBodies(bodies: string[]) {
 
   for (const body of bodies) {
     let section: 'intro' | 'order' | 'core' = 'intro';
+    let inMathBlock = false;
+    let inCodeFence: string | null = null;
     for (const rawLine of body.split('\n')) {
       const line = rawLine.trim();
-      if (!line) continue;
+      if (!line) {
+        if (section === 'core' && (inMathBlock || inCodeFence)) {
+          coreItems.push(rawLine);
+        }
+        continue;
+      }
+      const fenceMatch = line.match(/^(`{3,}|~{3,})/);
+      if (fenceMatch) {
+        if (!inCodeFence) inCodeFence = fenceMatch[1];
+        else if (
+          fenceMatch[1][0] === inCodeFence[0] &&
+          fenceMatch[1].length >= inCodeFence.length
+        ) {
+          inCodeFence = null;
+        }
+        if (section === 'core') coreItems.push(rawLine);
+        else introParagraphs.push(rawLine);
+        continue;
+      }
+      if (!inCodeFence && line === '$$') {
+        inMathBlock = !inMathBlock;
+        if (section === 'core') coreItems.push(rawLine);
+        else introParagraphs.push(rawLine);
+        continue;
+      }
+      if (inMathBlock || inCodeFence) {
+        if (section === 'core') coreItems.push(rawLine);
+        else introParagraphs.push(rawLine);
+        continue;
+      }
       if (/^#{2,4}\s*建議閱讀順序/.test(line)) {
         section = 'order';
         continue;
@@ -210,6 +241,14 @@ function mergeCourseGuideBodies(bodies: string[]) {
           introParagraphs.push(line);
         }
       }
+    }
+    if (inMathBlock) {
+      if (section === 'core') coreItems.push('$$');
+      else introParagraphs.push('$$');
+    }
+    if (inCodeFence) {
+      if (section === 'core') coreItems.push(inCodeFence);
+      else introParagraphs.push(inCodeFence);
     }
   }
 

@@ -912,6 +912,39 @@ test('new v3 handout layout composes guide, tables, pitfalls, exam predictions, 
     'Sections must follow the exact v3 document order',
   );
   assert.match(full, /老師特別提醒這段考試會考/);
+
+  // Multi-segment merge with multiple $$ blocks inside 核心主軸 must keep every $$ pair balanced.
+  const segA = {
+    note: '',
+    repairs: [],
+    sections: [
+      {
+        topicId: 'a:guide',
+        title: '這堂課在講什麼',
+        body: '第一段導覽。\n\n### 核心主軸\n\n$$\nV = IR\n$$',
+      },
+    ],
+  };
+  const segB = {
+    note: '',
+    repairs: [],
+    sections: [
+      {
+        topicId: 'b:guide',
+        title: '這堂課在講什麼',
+        body: '第二段導覽。\n\n### 核心主軸\n\n$$\nP = IV\n$$',
+      },
+    ],
+  };
+  const mergedGuide = composeReaderBody([segA, segB]);
+  const fullMulti = buildMarkdown({
+    filename: '電路學.m4a',
+    transcript: '逐字稿',
+    notes: mergedGuide,
+    generatedAt: '2026/11/22',
+  });
+  assert.match(fullMulti, /V = IR/);
+  assert.match(fullMulti, /P = IV/);
 });
 
 

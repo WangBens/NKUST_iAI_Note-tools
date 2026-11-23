@@ -26,14 +26,13 @@
    - 自動偵測並移除語音辨識常見的連續跳針重複字詞與切段交界處的重複句子。
 3. **繁體中文逐字稿校正（保留英文專有名詞）**
    - 透過高科 iAI 語言模型與 `opencc-js` 統一校正同音錯字、標點與斷句，同時完整保留英文技術術語、數學公式與程式碼縮排。
-4. **多階段 AI 學習講義管線（篩選 → 撰寫 → 獨立校核 → 合併）**
-   - **階段 A（內容篩選）**：自動區分 `study`（學習知識與明確考試作業提醒）、`aside`（閒聊）與 `noise`（雜訊）。
-   - **階段 B（講義撰寫）**：產出教科書等級 Markdown 結構——包含「本次學習概覽」、依知識脈絡分章（`##` / `###`）、Markdown 比較表格、精確 LaTeX 數學公式推導、分步例題與附語言標籤的程式碼區塊。
-   - **階段 C（獨立校核與本地容錯）**：驗證逐字稿單位覆蓋率、內建**數值四則運算驗算**、**KaTeX 公式可渲染性檢查**，並具備**零 Token 本地 JSON 語法修復**（自動修補漏冒號、中文引號、尾端空白註解等模型常見語法瑕疵）。
-   - **階段 D（智慧合併與全篇複習）**：本地整合所有分段，自動去重並於文末產生唯一一份「全篇複習整理」（`必會觀念｜複習提示` 總表＋連續編號 `自我檢查` 思考題）。
-5. **2 路受控並發與斷點續跑（不浪費 API 額度）**
-   - 支援 2 段受控並發加速長錄音整理；若遇單段複雜內容，系統會自動二分切分為小單位重試。
-   - 支援瀏覽器本地暫存與 **「下載復原檔（不含 API Key）」**，若中途網路中斷或額度用盡，可匯入復原檔從斷點直接續跑，已完成段落不重花任何 Token。
+4. **整份逐字稿單次直出＋程式級「零腦補」五段式講義引擎（`v1.1.0` 全新升級）**
+   - **單次整篇直出（Single-Shot Direct Markdown）**：善用高科 iAI `128K～1M` 長上下文視窗，60,000 字元以內直接以 **1 次請求**讀完完整逐字稿並產出唯一一份連貫的繁體中文 Markdown 講義，徹底告別分段拼湊與 JSON 跳脫破裂；超長錄音（> 60,000 字元）則自動切分大段並於最後執行 1 次統整。
+   - **雙層強制關閉思考模式（`enable_thinking: false`）**：前端與本機橋接器雙層鎖定關閉思考推論（實測 `reasoning_tokens = 0`）並設為低發散溫度 `0.1`，大幅加快回應速度並防止過度腦補。
+   - **程式級來源錨定防腦補（`enforceSourceGrounding`）**：自動解析逐字稿中的所有阿拉伯／中文口語數字與十六進位位址，凡未出現在錄音中的外部硬體規格數值、外部架構、虛構實體與語音錯字評論皆由程式自動過濾，並同步進行 KaTeX 公式驗證與 Token 退化亂碼攔截。
+   - **五段式實戰講義結構**：統一產出「這堂課在講什麼（含建議閱讀順序、核心主軸）」、「核心專有名詞對照表／符號與單位」、明顯分段條列之分章正文教學、「總整理表」、「常見失分點與迷思」、「老師可能會考的考題」與「考前自我檢查」。
+5. **快取續跑與零額度浪費機制**
+   - 支援瀏覽器本地暫存與 **「下載復原檔（不含 API Key）」**，若中途網路中斷或額度用盡，可匯入復原檔直接載入已完成筆記或從斷點續跑，絕不重花任何 Token；並完整相容舊版多階段復原檔零 Token 匯出。
 6. **跨平台原生桌面版 APP（Windows / macOS / Linux）**
    - 封裝為 Electron 桌面應用程式，點擊即自動於背景啟動內建 `Bridge`、`Web Server` 與 `Gateway`，免開終端機、免安裝 Node.js 與 FFmpeg。
    - **首次啟動捷徑精靈**：安裝並首次啟動 APP 後，會主動跳出視窗詢問 **「是否要在桌面建立捷徑？」**——選 **「是」** 自動建立於使用者桌面；選 **「否」** 則自動建立於使用者安裝程式的資料夾中（完整支援 Windows `.lnk`、macOS `.app` 符號連結與 Linux `.desktop` 啟動器）。
@@ -71,19 +70,21 @@ flowchart LR
 | `electron/main.mjs` | Electron 桌面主程序：整合三層本機服務、動態埠位分配、跨平台 `ffmpeg` 路徑解析與首次啟動捷徑精靈 |
 | `local/iai-bridge.mjs` | 本機音訊切段轉碼、iAI API 代理、NDJSON 進度串流、心跳保活與並發去重快取 |
 | `local/ubuntu-gateway.mjs` | 統一入口反向代理、同源檢查、CSP 安全標頭與請求大小保護 |
-| `lib/iai-workflow.ts` | 檔案驗證、ASR 退化清洗、分段切分、Thinking/規則雜訊過濾、KaTeX 驗證與 Markdown 匯出 |
-| `lib/generic-content.ts` | 語意單位切分、篩選／回執解析、本地 JSON 語法預修復（漏冒號／尾端雜訊）與數值算式驗算 |
-| `lib/generic-study.ts` | 多階段學習筆記主流程、2 路受控並發池、自動二分切分、容錯預算控制與斷點續跑 |
-| `lib/generic-reader.ts` | 本地智慧合併章節、統整唯一「本次學習概覽」與「全篇複習整理」 |
+| `lib/iai-workflow.ts` | 檔案驗證、ASR 退化清洗、分段切分、`enforceSourceGrounding` 程式級防腦補引擎、KaTeX 驗證與 Markdown 匯出 |
+| `lib/direct-study.ts` | 整份逐字稿單次直出引擎（60,000 字元內 1 次呼叫、關閉思考模式、純淨 Markdown 直出與大段降級統整） |
+| `lib/generic-content.ts` | 語意單位切分、篩選／回執解析、本地 JSON 語法預修復與數值算式驗算 |
+| `lib/generic-study.ts` | 復原檔相容介面、續跑快取驗證與多階段管線核心 |
+| `lib/generic-reader.ts` | 本地五段式講義結構組裝、H3 自動拆章、表格／清單規範化與缺失複習區自動補齊 |
 
 ---
 
 ## 📜 版本更新紀錄與版本控制
 
-本專案採用 **語意化版本控制（Semantic Versioning，`vMAJOR.MINOR.PATCH`）**。每當推送正式版 Git Tag（`v*`）時，GitHub Actions（`.github/workflows/release-desktop.yml`）會自動執行全部 **111 項自動化測試**，並同步編譯打包 **Windows、macOS、Linux** 三大作業系統的桌面安裝包發布至 [GitHub Releases](https://github.com/WangBens/NKUST_iAI_Note-tools/releases)。
+本專案採用 **語意化版本控制（Semantic Versioning，`vMAJOR.MINOR.PATCH`）**。每當推送正式版 Git Tag（`v*`）時，GitHub Actions（`.github/workflows/release-desktop.yml`）會自動執行全部 **117 項自動化測試**，並同步編譯打包 **Windows、macOS、Linux** 三大作業系統的桌面安裝包發布至 [GitHub Releases](https://github.com/WangBens/NKUST_iAI_Note-tools/releases)。
 
 | 版本號 | 發布日期 | 更新重點與版本控制項目 |
 | --- | --- | --- |
+| **`v1.1.0`** | 2026-11-23 | • **整份逐字稿單次直出模式（`lib/direct-study.ts`）**：60,000 字元內直接單次呼叫輸出唯一一份連貫的五段式 Markdown 講義，徹底解決過去分段拼湊重複與 JSON 跳脫破裂問題，速度提升 10 倍並大幅節省 Token。<br>• **雙層強制關閉思考模式**：前端與橋接器同步鎖定 `enable_thinking: false`（實測 `reasoning_tokens = 0`）與 `temperature: 0.1`。<br>• **跨學科程式級防腦補引擎（`enforceSourceGrounding`）**：自動比對逐字稿真實數字／位址，攔截無來源規格數據、外部架構、虛構實體與 Token 退化亂碼。<br>• **實機六大領域與六款 LLM 盲測驗證**：確認 `Furen-std` 為全科首選，單檔上限提升至 **100 MB**，全專案通過 **117 項自動化測試**。 |
 | **`v1.0.2`** | 2026-11-21 | • **同步官方最新模型清單與計費標準**：新增 `Nkust` 與 `Furen-coder`，並將 `Asr`（`whisper`）、`Furen-std`（`nemotron-3-super-120b`）、`Furen-max`（`nvidia-nemotron-3-ultra-550b-a55b`）等實際底層對應全面更新至最新公告。<br>• **正式發布三平台桌面版 APP**：修復 Linux `.deb` 封裝維護者設定，同步於 GitHub Releases 發布 Windows、macOS、Linux 三大平台安裝包。<br>• **獨立雙語文件**：提供內容完全對等之繁體中文（`README.md`）與英文（`README.en.md`）雙語說明文件。 |
 | **`v1.0.1`** | 2026-11-21 | • **首次啟動捷徑精靈**：安裝後首次啟動彈窗詢問是否於桌面建立捷徑（選「是」建於桌面、選「否」建於安裝資料夾），支援 Win `.lnk` / macOS `.app` / Linux `.desktop`。<br>• **JSON 容錯大升級**：新增本地語法修復，自動修補模型漏寫冒號（如 `"body"> ...`）、誤用中文引號與尾端空白註解物件，0 Token 救援失敗回覆並放寬二分切分重試配額。 |
 | **`v1.0.0`** | 2026-11-21 | • **桌面版 APP 正式封裝**：整合 Electron + ASAR 封裝與內建 `ffmpeg-static` 解包，實現免終端機、免裝 Node.js 一鍵啟動桌面圖形介面。<br>• **開源化與隱私清理**：移除所有環境特定路徑與內部設定，加入 MIT License 與完整開源指南。 |

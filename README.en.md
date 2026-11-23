@@ -26,14 +26,13 @@ University lectures often deliver a large amount of information in a short time,
    - Automatically detects and removes repetitive speech-recognition hallucination loops and duplicate sentences across segment boundaries.
 3. **Traditional Chinese Transcript Correction (Preserving English Terminology)**
    - Corrects homophone typos, punctuation, and sentence boundaries using NKUST iAI LLMs and `opencc-js`, while preserving English technical terms, mathematical formulas, and code indentation.
-4. **Multi-Stage AI Study Handout Pipeline (Filter → Write → Independent Review → Merge)**
-   - **Stage A (Content Filter)**: Classifies each unit into `study` (academic knowledge & explicit exam/assignment reminders), `aside` (chitchat), or `noise`.
-   - **Stage B (Handout Writer)**: Produces textbook-grade Markdown including a "Learning Overview", logically structured chapters (`##` / `###`), Markdown comparison tables, precise LaTeX derivations, step-by-step worked examples, and syntax-highlighted code blocks.
-   - **Stage C (Independent Review & Local Repair)**: Verifies unit-by-unit coverage, checks explicit numeric arithmetic, validates KaTeX formula renderability, and performs **zero-token local JSON syntax repair** (automatically fixing missing colons, Chinese quotation marks, and trailing phantom commentary objects).
-   - **Stage D (Smart Local Merge & Full Review)**: Combines all segments locally, removes duplicates, and generates a single unified "Full Review" section (`Key Concepts | Review Tips` table + sequentially numbered `Self-Check` questions).
-5. **2-Way Controlled Concurrency & Checkpoint Resume (Zero Wasted API Quota)**
-   - Processes up to 2 chunks concurrently to speed up long recordings and automatically bisects complex chunks into smaller units when retrying.
-   - Supports browser local caching and **"Download Recovery File (No API Key)"**, allowing interrupted jobs (due to network drops or quota limits) to resume from the exact checkpoint without re-billing completed segments.
+4. **Single-Shot Whole-Transcript Direct Markdown & Programmatic Anti-Hallucination Engine (New in `v1.1.0`)**
+   - **Single-Shot Direct Markdown (`lib/direct-study.ts`)**: Leverages NKUST iAI's `128K–1M` context windows to read the entire transcript (up to 60,000 characters) in **1 single call** and output one cohesive 5-part Traditional Chinese Markdown handout directly—eliminating fragmented stitching and JSON-escaping glitches. Extraordinarily long recordings (> 60,000 characters) automatically split into large parts with 1 final consolidation pass.
+   - **Dual-Layer Thinking Mode Disabled (`enable_thinking: false`)**: Enforces `chat_template_kwargs: { enable_thinking: false }` (verified `reasoning_tokens = 0`) and `temperature: 0.1` across both frontend and local bridge for faster responses and minimal hallucination.
+   - **Universal Programmatic Source-Grounding (`enforceSourceGrounding`)**: Extracts all Arabic/Chinese spoken numbers and hex literals from the transcript to automatically strip unsourced hardware specs, external architectures, hypothetical entities, ASR-typo commentary, and token degeneration, paired with strict KaTeX math validation.
+   - **Structured 5-Part Study Handout**: Outputs a unified "What This Lecture Covers (with Reading Order & Core Takeaways)", "Bilingual Glossary / Symbols & Units", clearly segmented teaching chapters with bullet lists, "Summary Table", "Common Pitfalls & Misconceptions", "Predicted Exam Questions", and "Pre-Exam Self-Check".
+5. **Checkpoint Resume & Zero Wasted API Quota**
+   - Supports browser local caching and **"Download Recovery File (No API Key)"**, allowing interrupted jobs to resume or export completed notes without re-billing tokens, while maintaining full zero-token backward compatibility with legacy recovery files.
 6. **Cross-Platform Native Desktop App (Windows / macOS / Linux)**
    - Packaged as an Electron desktop application that automatically launches the embedded `Bridge`, `Web Server`, and `Gateway` in the background—no terminal commands, Node.js, or FFmpeg installation required.
    - **First-Launch Shortcut Prompt**: Upon first launch after installation, a dialog asks **"Create a shortcut on your Desktop?"**—selecting **"Yes"** creates the shortcut on your Desktop; selecting **"No"** creates it inside your installation folder (supporting Windows `.lnk`, macOS `.app` symlink, and Linux `.desktop` launcher).
@@ -71,19 +70,21 @@ flowchart LR
 | `electron/main.mjs` | Electron main process: orchestrates all three local services, dynamic port allocation, cross-platform `ffmpeg` path resolution, and the first-launch shortcut prompt |
 | `local/iai-bridge.mjs` | Local FFmpeg audio segmentation, iAI API proxy, NDJSON progress streaming, heartbeat keep-alive, and concurrent request deduplication |
 | `local/ubuntu-gateway.mjs` | Unified reverse proxy, same-origin enforcement, CSP security headers, and payload size guards |
-| `lib/iai-workflow.ts` | File validation, ASR loop cleanup, transcript splitting, thinking/meta-rule filtering, KaTeX validation, and Markdown export |
-| `lib/generic-content.ts` | Semantic unit splitting, filter/receipt parsing, local malformed JSON syntax pre-repair (missing colons / trailing noise), and numeric arithmetic verification |
-| `lib/generic-study.ts` | Multi-stage study notes orchestrator, 2-way concurrency pool, automatic bisection, retry budget control, and checkpoint resume |
-| `lib/generic-reader.ts` | Local smart chapter merger, unified "Learning Overview", and "Full Review" section builder |
+| `lib/iai-workflow.ts` | File validation, ASR loop cleanup, transcript splitting, `enforceSourceGrounding` programmatic anti-hallucination engine, KaTeX validation, and Markdown export |
+| `lib/direct-study.ts` | Single-shot whole-transcript direct Markdown engine (1 call up to 60,000 chars, thinking disabled, large-part fallback for ultra-long recordings) |
+| `lib/generic-content.ts` | Semantic unit splitting, filter/receipt parsing, local malformed JSON syntax pre-repair, and numeric arithmetic verification |
+| `lib/generic-study.ts` | Recovery cache compatibility layer, resume verification, and multi-stage pipeline core |
+| `lib/generic-reader.ts` | Local 5-part handout assembler, H3 chapter unpacking, table/list normalization, and grounded review section completion |
 
 ---
 
 ## 📜 Changelog & Version Control
 
-This project uses **Semantic Versioning (`vMAJOR.MINOR.PATCH`)**. Pushing a release Git Tag (`v*`) automatically triggers GitHub Actions (`.github/workflows/release-desktop.yml`) to run all **111 automated tests** and build native desktop packages for **Windows, macOS, and Linux**, publishing them directly to [GitHub Releases](https://github.com/WangBens/NKUST_iAI_Note-tools/releases).
+This project uses **Semantic Versioning (`vMAJOR.MINOR.PATCH`)**. Pushing a release Git Tag (`v*`) automatically triggers GitHub Actions (`.github/workflows/release-desktop.yml`) to run all **117 automated tests** and build native desktop packages for **Windows, macOS, and Linux**, publishing them directly to [GitHub Releases](https://github.com/WangBens/NKUST_iAI_Note-tools/releases).
 
 | Version | Release Date | Highlights & Version Controls |
 | --- | --- | --- |
+| **`v1.1.0`** | 2026-11-23 | • **Single-Shot Whole-Transcript Direct Markdown (`lib/direct-study.ts`)**: Processes up to 60,000 characters in 1 single call to generate one cohesive 5-part Markdown handout directly—eliminating fragmented stitching and JSON-escaping corruption while cutting latency and token usage dramatically.<br>• **Dual-Layer Thinking Mode Disabled**: Enforces `enable_thinking: false` (verified `reasoning_tokens = 0`) and `temperature: 0.1` across frontend and bridge.<br>• **Universal Programmatic Anti-Hallucination Engine (`enforceSourceGrounding`)**: Cross-checks spoken Arabic/Chinese numbers and hex literals against the transcript to block unsourced specs, external architectures, hypothetical entities, and token degeneration.<br>• **Live 6-Domain & 6-Model Benchmark**: Confirmed `Furen-std` as the top all-around model, raised single-file limit to **100 MB**, and expanded automated test coverage to **117 tests**. |
 | **`v1.0.2`** | 2026-11-21 | • **Updated Official Models & Pricing**: Added `Nkust` and `Furen-coder`, and synced underlying model mappings for `Asr` (`whisper`), `Furen-std` (`nemotron-3-super-120b`), and `Furen-max` (`nvidia-nemotron-3-ultra-550b-a55b`).<br>• **Official 3-Platform Desktop App Releases**: Fixed Linux `.deb` maintainer metadata and published Windows, macOS, and Linux installers simultaneously to GitHub Releases.<br>• **Dedicated Bilingual Docs**: Provided synchronized Traditional Chinese (`README.md`) and English (`README.en.md`) documentation. |
 | **`v1.0.1`** | 2026-11-21 | • **First-Launch Shortcut Prompt**: Prompts users on first launch to create a shortcut on the Desktop (`Yes`) or in the installation folder (`No`), supporting Windows `.lnk`, macOS `.app`, and Linux `.desktop`.<br>• **Enhanced Local JSON Repair**: Automatically repairs missing colons (e.g., `"body"> ...`), misquoted fields, Chinese closing quotes, and trailing phantom commentary objects locally at zero token cost, and expands bisection retry budgets. |
 | **`v1.0.0`** | 2026-11-21 | • **Desktop App Packaging**: Integrated Electron with ASAR packaging and unpacked `ffmpeg-static` for one-click GUI launch without terminal commands or Node.js.<br>• **Open-Source Release**: Removed all environment-specific paths/secrets and added the MIT License and full documentation. |

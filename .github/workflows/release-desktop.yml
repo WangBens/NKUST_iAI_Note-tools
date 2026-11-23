@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Release tag to publish (e.g., v1.0.2)"
+        description: "Release tag to publish (e.g., v1.1.0)"
         required: true
-        default: "v1.0.2"
+        default: "v1.1.0"
 
 permissions:
   contents: write
@@ -103,12 +103,13 @@ jobs:
             - **macOS (Apple Silicon `arm64` / Intel `x64`)**：下載 `.dmg` 或 `.zip`
             - **Linux (x64)**：下載 `.AppImage`（通用免安裝）或 `.deb`（Ubuntu / Debian 安裝包）
 
-            ### ✨ 本版亮點與版本更新（v1.0.2）
-            - **同步官方最新模型清單與計費標準**：新增 `Nkust` 與 `Furen-coder`，並更新 `Asr`（`whisper`）、`Furen-std`（`nemotron-3-super-120b`）、`Furen-max`（`nvidia-nemotron-3-ultra-550b-a55b`）等實際模型對應。
-            - **首次啟動捷徑精靈**：安裝並首次開啟程式後，會彈出視窗詢問「是否要在桌面建立捷徑？」——選「是」建立於使用者桌面，選「否」則自動建立於程式安裝資料夾中（完整支援 Windows `.lnk`、macOS `.app` 符號連結與 Linux `.desktop` 啟動器）。
-            - **三平台正式打包發布**：同時提供 Windows、macOS、Linux 三大作業系統桌面應用程式下載。
-            - **JSON 容錯與斷點續跑強化**：自動本地修復模型回傳漏冒號（如 `"body"> ...`）、中文引號與尾端空白註解物件，不額外消耗 Token 並放寬長錄音二分切分的容錯次數。
-            - **零個資留存**：API Key 僅存於執行期記憶體，復原檔與錯誤報告皆自動遮蔽憑證。
+            ### ✨ 本版亮點與版本更新（v1.1.0）
+            - **整份逐字稿單次直出模式（Single-Shot Direct Markdown）**：善用高科 iAI `128K～1M` 長上下文視窗，60,000 字元以內直接單次呼叫輸出唯一一份連貫的五段式 Markdown 講義（取代過去 20～35 通分段 JSON 呼叫），徹底消除分段重複拼湊與 JSON 跳脫破裂問題，速度提升 10 倍、大幅節省 Token 額度。
+            - **全面強制關閉思考模式（`enable_thinking: false`）**：前端與本機橋接器雙層鎖定關閉推論思考模式（實測 `reasoning_tokens = 0`）並調降溫度至 `0.1`，大幅加快回應速度並避免過度發散。
+            - **跨學科通用「程式級防腦補引擎」（`enforceSourceGrounding`）**：自動解析逐字稿中的所有阿拉伯與中文口語數字及十六進位位址，程式化攔截無來源的硬體規格數值、外部架構與虛構實體，並自動修復行內公式、表格對齊與 Token 退化亂碼。
+            - **全新五段式實戰學習講義結構**：統一輸出「這堂課在講什麼（含建議閱讀順序、核心主軸）」、「核心專有名詞對照表／符號與單位」、分章正文教學、「總整理表」、「常見失分點與迷思」、「老師可能會考的考題」與「考前自我檢查」。
+            - **高科 iAI 六款 LLM 實機盲測驗證**：完成 6 大跨學科領域與 34 分鐘真實錄音實機驗證，確認 **`Furen-std`** 為綜合速度、零亂碼與品質首選，全專案通過 **117 項自動化測試**。
+            - **單檔上限提升至 100 MB & 三平台桌面安裝包**：同步提供 Windows、macOS、Linux 三大作業系統桌面版 APP，並內建首次啟動捷徑精靈與零個資留存保護。
           files: dist-release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

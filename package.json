@@ -2,7 +2,7 @@
   "name": "nkust-iai-note-tools",
   "productName": "NKUST iAI Note Tools",
   "description": "知音筆記｜高科 iAI 課堂錄音轉學習講義工具",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "private": true,
   "author": {
     "name": "WangBens",

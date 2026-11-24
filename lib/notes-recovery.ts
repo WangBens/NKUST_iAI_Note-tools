@@ -61,7 +61,7 @@ export async function recoverNotesLayout(input: string) {
     if ((node.type === 'math' || node.type === 'inlineMath') && node.value) {
       try {
         if (
-          /\\{3,}|\\{2,}[A-Za-z]|(?<!\\)\b(?:frac|sqrt|text|begin|end)\s*\{/.test(
+          /\\{3,}|\\{2,}[A-Za-z]|\\\s+(?:frac|partial|quad|text|begin|end)\b|(?<!\\)\b(?:frac|sqrt|text|begin|end)\s*\{/.test(
             node.value,
           )
         )
@@ -70,6 +70,7 @@ export async function recoverNotesLayout(input: string) {
           throwOnError: true,
           trust: false,
           strict: 'ignore',
+          displayMode: node.type === 'math',
         });
       } catch {
         const start = node.position?.start.offset;

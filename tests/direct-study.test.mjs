@@ -334,3 +334,61 @@ test('extraordinarily long transcripts (> 60,000 chars) split into large parts p
   assert.match(notes, /呼叫 3/);
   assert.equal(hasCompleteStudyNotes(cache), true);
 });
+
+test('direct mode separates <system_rules> and <lecture_transcript> and safely recovers malformed LaTeX without pausing export', async () => {
+  const transcript =
+    '這堂工程數學課講一階正合微分方程 M(x,y)dx + N(x,y)dy = 0，滿足 ∂M/∂y = ∂N/∂x 時可求勢函數 f(x,y) = C。';
+  const cache = { signature: 'latex-recovery', drafts: [], parts: [], merges: {} };
+  const brokenLatexReply = [
+    '## 這堂課在講什麼',
+    '本堂課說明正合微分方程的判別與求解。',
+    '### 核心主軸',
+    '- 合法公式：$\\frac{\\partial M}{\\partial y} = \\frac{\\partial N}{\\partial x}$',
+    '- 破損空格反斜線公式：$\\ frac{a}{b}$',
+    '- 未閉合大括號公式：$\\frac{1}{2$',
+    '',
+    '## 正合條件與推導',
+    '$$',
+    '\\begin{aligned}',
+    'M(x,y)\\,dx + N(x,y)\\,dy &= 0 \\\\',
+    'f(x,y) &= C',
+    '\\end{aligned}',
+    '$$',
+    '',
+    '$$',
+    '\\unknownBrokenMacro{123',
+    '$$',
+  ].join('\n');
+
+  let seenSystem = '';
+  let seenUser = '';
+  const notes = await summarizeDirectStudyNotes(
+    transcript,
+    async (messages) => {
+      seenSystem = messages[0].content;
+      seenUser = messages[1].content;
+      return brokenLatexReply;
+    },
+    cache,
+  );
+
+  // Verify strict separation between rules and transcript
+  assert.match(seenSystem, /^<system_rules>/);
+  assert.match(seenSystem, /<\/system_rules>$/);
+  assert.match(seenUser, /<lecture_transcript>/);
+  assert.match(seenUser, /<\/lecture_transcript>/);
+
+  // Verify valid LaTeX is preserved AND malformed LaTeX is safely downgraded without throwing
+  const md = buildMarkdown({
+    filename: '工程數學.m4a',
+    transcript,
+    notes,
+    model: 'Furen-std',
+    generatedAt: '2026-11-24',
+  });
+  assertReadableNotes(md);
+  await assertNotesMath(md);
+  assert.match(md, /\\frac\{\\partial M\}\{\\partial y\}/);
+  assert.match(md, /\\begin\{aligned\}/);
+});
+

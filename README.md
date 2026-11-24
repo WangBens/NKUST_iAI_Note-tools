@@ -85,6 +85,7 @@ flowchart LR
 
 | 版本號 | 發布日期 | 更新重點與版本控制項目 |
 | --- | --- | --- |
+| **`v1.3.0`** | 2026-11-24 | • **新增 Android 手機版 APK**：GitHub Releases 同步建置並發布 `android.apk`，支援手機選取錄音檔與直接下載 `.md` 筆記至手機下載資料夾。<br>• **「檢查更新」按鈕＋更新內容確認彈窗**：桌面版左上角常駐「檢查更新」按鈕（並支援背景自動搜尋），點擊後彈出視窗顯示最新版本更新內容，待使用者按「確認並開始更新」後才開始下載安裝。<br>• **介面視覺優化 & LaTeX 根治修復**：主畫面底部加入開源專案網址、隱藏右側多餘捲軸；修復 LaTeX 排版防崩潰並將規則與逐字稿以 `<system_rules>` / `<lecture_transcript>` 嚴格隔離（120 項測試全數通過）。 |
 | **`v1.2.0`** | 2026-11-24 | • **桌面版自動檢查與左上角一鍵自動更新**：新增 `electron/preload.cjs` 與 `electron/updater-utils.mjs`，開啟桌面版 APP 自動查詢 GitHub Releases 最新版本；若有新版本即於左上角顯示更新按鈕，點擊即時顯示下載百分比並依作業系統自動啟動新版安裝（網頁版維持原貌不更動）。<br>• **新增自動更新單元測試**：全專案擴充至 **119 項自動化測試**。 |
 | **`v1.1.0`** | 2026-11-23 | • **整份逐字稿單次直出模式（`lib/direct-study.ts`）**：60,000 字元內直接單次呼叫輸出唯一一份連貫的五段式 Markdown 講義，徹底解決過去分段拼湊重複與 JSON 跳脫破裂問題，速度提升 10 倍並大幅節省 Token。<br>• **雙層強制關閉思考模式**：前端與橋接器同步鎖定 `enable_thinking: false`（實測 `reasoning_tokens = 0`）與 `temperature: 0.1`。<br>• **跨學科程式級防腦補引擎（`enforceSourceGrounding`）**：自動比對逐字稿真實數字／位址，攔截無來源規格數據、外部架構、虛構實體與 Token 退化亂碼。<br>• **實機六大領域與六款 LLM 盲測驗證**：確認 `Furen-std` 為全科首選，單檔上限提升至 **100 MB**，全專案通過 **117 項自動化測試**。 |
 | **`v1.0.2`** | 2026-11-21 | • **同步官方最新模型清單與計費標準**：新增 `Nkust` 與 `Furen-coder`，並將 `Asr`（`whisper`）、`Furen-std`（`nemotron-3-super-120b`）、`Furen-max`（`nvidia-nemotron-3-ultra-550b-a55b`）等實際底層對應全面更新至最新公告。<br>• **正式發布三平台桌面版 APP**：修復 Linux `.deb` 封裝維護者設定，同步於 GitHub Releases 發布 Windows、macOS、Linux 三大平台安裝包。<br>• **獨立雙語文件**：提供內容完全對等之繁體中文（`README.md`）與英文（`README.en.md`）雙語說明文件。 |
@@ -104,6 +105,7 @@ flowchart LR
 - **Windows（64-bit）**：`NKUST iAI Note Tools Setup x.x.x.exe`（標準安裝程式）或 `NKUST iAI Note Tools-x.x.x-win.zip`（免安裝綠色版）
 - **macOS（Apple Silicon `arm64` / Intel `x64`）**：`NKUST iAI Note Tools-x.x.x-arm64.dmg` / `x64.dmg`（或 `.zip`）
 - **Linux（Ubuntu / Debian / 通用）**：`NKUST iAI Note Tools-x.x.x.AppImage`（免安裝可執行檔）或 `.deb`（Debian / Ubuntu 安裝包）
+- **Android 手機**：`NKUST-iAI-Note-Tools-x.x.x-android.apk`（下載後直接安裝使用）
 
 > **💡 首次開啟提示**：安裝並首次啟動 APP 後，程式會跳出視窗詢問 **「是否要在桌面建立捷徑？」**，點選 **「是」** 會新增於桌面，點選 **「否」** 則會新增於您安裝程式的資料夾中。
 

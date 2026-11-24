@@ -271,6 +271,8 @@ type DesktopUpdaterState = {
   currentVersion: string;
   latestVersion: string;
   releaseUrl: string;
+  releaseNotes?: string;
+  publishedAt?: string;
   assetName: string;
   assetUrl: string;
   percent: number;
@@ -293,13 +295,16 @@ function getDesktopUpdater(): DesktopUpdaterBridge | undefined {
 }
 
 function DesktopUpdateButton() {
+  const [hasBridge, setHasBridge] = useState(false);
   const [updateState, setUpdateState] = useState<DesktopUpdaterState | null>(
     null,
   );
+  const [modalOpen, setModalOpen] = useState(false);
 
   useEffect(() => {
     const bridge = getDesktopUpdater();
     if (!bridge) return;
+    setHasBridge(true);
     let active = true;
     bridge
       .getStatus()
@@ -316,50 +321,141 @@ function DesktopUpdateButton() {
     };
   }, []);
 
-  if (
-    !updateState ||
-    !['available', 'downloading', 'installing', 'error'].includes(
-      updateState.status,
-    )
-  ) {
+  if (!hasBridge) {
     return null;
   }
 
+  const status = updateState?.status ?? 'idle';
   const busy =
-    updateState.status === 'downloading' ||
-    updateState.status === 'installing';
+    status === 'downloading' || status === 'installing' || status === 'checking';
+  const hasUpdate = status === 'available';
 
   const label =
-    updateState.status === 'downloading'
-      ? `下載更新中 ${updateState.percent}%`
-      : updateState.status === 'installing'
-        ? '正在啟動更新安裝…'
-        : updateState.status === 'error'
-          ? '更新失敗（點擊重試）'
-          : `更新至 v${updateState.latestVersion}`;
+    status === 'checking'
+      ? '檢查更新中…'
+      : status === 'downloading'
+        ? `下載更新中 ${updateState?.percent ?? 0}%`
+        : status === 'installing'
+          ? '正在啟動更新安裝…'
+          : status === 'available'
+            ? `發現新版 v${updateState?.latestVersion}`
+            : '檢查更新';
+
+  const handleTriggerClick = async () => {
+    const bridge = getDesktopUpdater();
+    if (!bridge || status === 'downloading' || status === 'installing') return;
+    if (status === 'available') {
+      setModalOpen(true);
+      return;
+    }
+    const next = await bridge.checkForUpdates().catch(() => null);
+    if (next) setUpdateState(next);
+    setModalOpen(true);
+  };
 
   return (
-    <button
-      type="button"
-      className={`desktop-update-pill ${updateState.status === 'error' ? 'is-error' : ''}`}
-      disabled={busy}
-      title={
-        updateState.message ||
-        `發現 GitHub Releases 新版本 v${updateState.latestVersion}（目前 v${updateState.currentVersion}），點擊自動下載並更新`
-      }
-      onClick={() => {
-        const bridge = getDesktopUpdater();
-        if (!bridge || busy) return;
-        void bridge.startUpdate();
-      }}
-    >
-      {busy ? (
-        <LoaderCircle size={14} className="spin" />
-      ) : (
-        <Download size={14} />
+    <>
+      <button
+        type="button"
+        className={`desktop-update-pill ${hasUpdate ? 'is-available' : 'is-idle'} ${status === 'error' ? 'is-error' : ''}`}
+        disabled={status === 'downloading' || status === 'installing'}
+        title={
+          hasUpdate
+            ? `發現新版本 v${updateState?.latestVersion}（目前 v${updateState?.currentVersion}），點擊查看更新內容`
+            : '檢查 GitHub Releases 是否有最新版本'
+        }
+        onClick={() => void handleTriggerClick()}
+      >
+        {busy ? (
+          <LoaderCircle size={14} className="spin" />
+        ) : hasUpdate ? (
+          <Download size={14} />
+        ) : (
+          <RefreshCw size={13} />
+        )}
+        <span>{label}</span>
+      </button>
+
+      {modalOpen && updateState && (
+        <div
+          className="update-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="檢查版本更新"
+          onClick={() => {
+            if (status !== 'downloading' && status !== 'installing') {
+              setModalOpen(false);
+            }
+          }}
+        >
+          <div
+            className="update-modal"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="update-modal-head">
+              <h3>
+                {hasUpdate
+                  ? `發現新版本 v${updateState.latestVersion}`
+                  : status === 'error'
+                    ? '檢查更新失敗'
+                    : `目前已是最新版本 v${updateState.currentVersion}`}
+              </h3>
+              <p className="update-version-meta">
+                目前安裝版本：<code>v{updateState.currentVersion}</code>
+                {updateState.latestVersion &&
+                  ` · GitHub 最新版本：v${updateState.latestVersion}`}
+              </p>
+            </div>
+
+            {status === 'error' && updateState.message && (
+              <p className="update-error-text">{updateState.message}</p>
+            )}
+
+            <div className="update-notes-box">
+              <p className="update-notes-label">最新版本更新內容</p>
+              <pre className="update-notes-pre">
+                {updateState.releaseNotes ||
+                  '此版本未提供額外更新說明，可前往 GitHub Releases 頁面查看完整紀錄。'}
+              </pre>
+            </div>
+
+            {status === 'downloading' && (
+              <p className="update-progress-text">
+                正在下載新版安裝程式：{updateState.percent}%…
+              </p>
+            )}
+            {status === 'installing' && (
+              <p className="update-progress-text">
+                下載完成，正在啟動新版安裝程式…
+              </p>
+            )}
+
+            <div className="update-modal-actions">
+              <Button
+                variant="outline"
+                disabled={status === 'downloading' || status === 'installing'}
+                onClick={() => setModalOpen(false)}
+              >
+                {hasUpdate ? '稍後再說' : '關閉'}
+              </Button>
+              {hasUpdate && (
+                <Button
+                  className="download-action"
+                  disabled={status === 'downloading' || status === 'installing'}
+                  onClick={() => {
+                    const bridge = getDesktopUpdater();
+                    if (!bridge) return;
+                    void bridge.startUpdate();
+                  }}
+                >
+                  <Download size={16} /> 確認並開始更新
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
-      <span>{label}</span>
-    </button>
+    </>
   );
 }
 
@@ -2206,7 +2302,18 @@ export default function Home() {
           )}
         </div>
       </section>
-      <footer>高科 iAI · Asr 語音轉錄 · Nkust / Furen 逐字稿校正與學習重點整理</footer>
+      <footer>
+        <span>高科 iAI · Asr 語音轉錄 · Nkust / Furen 逐字稿校正與學習重點整理</span>
+        <span className="footer-sep" aria-hidden="true">·</span>
+        <a
+          href="https://github.com/WangBens/NKUST_iAI_Note-tools"
+          target="_blank"
+          rel="noreferrer"
+          className="footer-repo-link"
+        >
+          開源專案：https://github.com/WangBens/NKUST_iAI_Note-tools
+        </a>
+      </footer>
     </main>
   );
 }

@@ -32,6 +32,8 @@ let updaterState = {
   currentVersion: app.getVersion(),
   latestVersion: "",
   releaseUrl: GITHUB_RELEASES_PAGE_URL,
+  releaseNotes: "",
+  publishedAt: "",
   assetName: "",
   assetUrl: "",
   percent: 0,
@@ -46,7 +48,7 @@ function setUpdaterState(patch) {
   return updaterState;
 }
 
-async function checkForUpdates() {
+async function checkForUpdates(manual = false) {
   if (
     updaterState.status === "downloading" ||
     updaterState.status === "installing"
@@ -72,9 +74,9 @@ async function checkForUpdates() {
     clearTimeout(timer);
     if (!response.ok) {
       return setUpdaterState({
-        status: "up-to-date",
+        status: manual ? "error" : "up-to-date",
         currentVersion,
-        message: "",
+        message: manual ? `無法連線至 GitHub Releases（HTTP ${response.status}）` : "",
       });
     }
     const release = await response.json();
@@ -85,6 +87,8 @@ async function checkForUpdates() {
       /^https:\/\//i.test(release.html_url)
         ? release.html_url
         : GITHUB_RELEASES_PAGE_URL;
+    const releaseNotes = String(release?.body || "").trim();
+    const publishedAt = String(release?.published_at || "");
 
     if (!latestVersion || compareSemver(latestVersion, currentVersion) <= 0) {
       return setUpdaterState({
@@ -92,6 +96,8 @@ async function checkForUpdates() {
         currentVersion,
         latestVersion: latestVersion || currentVersion,
         releaseUrl,
+        releaseNotes,
+        publishedAt,
         assetName: "",
         assetUrl: "",
         percent: 0,
@@ -109,17 +115,18 @@ async function checkForUpdates() {
       currentVersion,
       latestVersion,
       releaseUrl,
+      releaseNotes,
+      publishedAt,
       assetName: asset?.name || "",
       assetUrl: asset?.browser_download_url || "",
       percent: 0,
       message: "",
     });
   } catch {
-    // Stay silent on offline / rate-limit startup checks so the user is not disturbed.
     return setUpdaterState({
-      status: "up-to-date",
+      status: manual ? "error" : "up-to-date",
       currentVersion,
-      message: "",
+      message: manual ? "檢查更新失敗，請確認網路連線後再試。" : "",
     });
   }
 }
@@ -486,7 +493,7 @@ async function createMainWindow() {
 }
 
 ipcMain.handle("desktop-updater:get-status", () => updaterState);
-ipcMain.handle("desktop-updater:check", () => checkForUpdates());
+ipcMain.handle("desktop-updater:check", () => checkForUpdates(true));
 ipcMain.handle("desktop-updater:start", () => startAutoUpdate());
 
 app.whenReady().then(async () => {

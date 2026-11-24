@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Release tag to publish (e.g., v1.2.0)"
+        description: "Release tag to publish (e.g., v1.3.0)"
         required: true
-        default: "v1.2.0"
+        default: "v1.3.0"
 
 permissions:
   contents: write
@@ -70,8 +70,48 @@ jobs:
             release/*.deb
           if-no-files-found: warn
 
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Generate Android Release Keystore & Build APK
+        working-directory: android
+        run: |
+          TAG="${{ inputs.tag_name || github.ref_name }}"
+          VER="${TAG#v}"
+          keytool -genkeypair -v \
+            -keystore /tmp/nkust-release.jks \
+            -storepass nkustiai2026 \
+            -keypass nkustiai2026 \
+            -alias nkustiai \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=NKUST iAI Note Tools, OU=OpenSource, O=WangBens, L=Kaohsiung, ST=Taiwan, C=TW"
+          ANDROID_KEYSTORE_PATH=/tmp/nkust-release.jks gradle -PAPP_VERSION="$VER" assembleRelease
+          mkdir -p out-apk
+          cp app/build/outputs/apk/release/app-release.apk "out-apk/NKUST-iAI-Note-Tools-${VER}-android.apk"
+          ls -lh out-apk/
+
+      - name: Upload Android APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-android
+          path: android/out-apk/*.apk
+
   publish-release:
-    needs: build-desktop
+    needs: [build-desktop, build-android]
     runs-on: ubuntu-latest
     steps:
       - name: Download All Platform Artifacts
@@ -82,31 +122,33 @@ jobs:
       - name: Flatten Release Files
         run: |
           mkdir -p dist-release
-          find artifacts -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.deb" \) -exec cp {} dist-release/ \;
+          find artifacts -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.zip" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.apk" \) -exec cp {} dist-release/ \;
           ls -lh dist-release/
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag_name || github.ref_name }}
-          name: "${{ inputs.tag_name || github.ref_name }}｜知音筆記 NKUST iAI Note Tools (Windows / macOS / Linux)"
+          name: "${{ inputs.tag_name || github.ref_name }}｜知音筆記 NKUST iAI Note Tools (Windows / macOS / Linux / Android)"
           draft: false
           prerelease: false
           generate_release_notes: true
           body: |
-            ## 知音筆記｜NKUST iAI Note Tools 跨平台桌面版 APP
+            ## 知音筆記｜NKUST iAI Note Tools 跨平台桌面與 Android 版 APP
 
             > **專案初衷**：如果老師上課允許錄音，學生就可以利用錄音串接學校提供的 AI 模型（高科 iAI `Asr` 與 `Nkust` / `Furen` 系列），整理成一份屬於自己的學習重點。
 
-            ### 📦 跨平台桌面版 APP 下載
+            ### 📦 跨平台安裝包下載
             - **Windows (x64)**：下載 `Setup.exe`（標準安裝版）或 `.zip`（免安裝綠色版，解壓縮即可執行）
             - **macOS (Apple Silicon `arm64` / Intel `x64`)**：下載 `.dmg` 或 `.zip`
             - **Linux (x64)**：下載 `.AppImage`（通用免安裝）或 `.deb`（Ubuntu / Debian 安裝包）
+            - **Android 手機**：下載 `NKUST-iAI-Note-Tools-x.x.x-android.apk` 直接安裝使用（支援手機選取錄音檔與直接下載 `.md` 筆記至「下載」資料夾）
 
-            ### ✨ 本版亮點與版本更新（v1.2.0）
-            - **桌面版啟動自動檢查更新 & 左上角一鍵自動更新**：開啟桌面版 APP 時背景自動查詢 GitHub Releases 最新版本；若有新版本，視窗左上角「知音筆記」旁將自動顯示 **「更新至 vX.X.X」** 按鈕，點擊即可即時顯示下載進度（`0% → 100%`）並依作業系統（Windows `Setup.exe` / macOS `.dmg` / Linux `.AppImage`）自動啟動新版安裝更新（網頁版維持原貌不更動）。
-            - **整份逐字稿單次直出模式 & 雙層關閉思考模式**：60,000 字元內單次 1 通呼叫直出完整五段式講義，全面鎖定 `enable_thinking: false`（實測 `reasoning_tokens = 0`）與跨學科程式級防腦補引擎（`enforceSourceGrounding`）。
-            - **三平台桌面安裝包 & 119 項自動化測試**：同步發布 Windows、macOS、Linux 安裝檔，內建首次啟動捷徑精靈與零個資留存保護。
+            ### ✨ 本版亮點與版本更新（v1.3.0）
+            - **新增 Android 手機版 APK**：正式於 Releases 同步提供 Android 手機安裝包，隨時隨地用手機上傳課堂錄音整理筆記。
+            - **「檢查更新」按鈕＋更新內容確認彈窗**：桌面版左上角新增常駐 **「檢查更新」** 按鈕（同時支援啟動自動背景搜尋新版）；點擊後會彈出視窗顯示**最新版本更新內容**，待使用者按下**「確認並開始更新」**後才開始下載並安裝更新。
+            - **介面視覺優化與開源連結**：主畫面底部新增開源專案連結（`https://github.com/WangBens/NKUST_iAI_Note-tools`），並隱藏右側多餘捲軸使桌面介面更俐落乾淨。
+            - **LaTeX 渲染防崩潰與 `<system_rules>` / `<lecture_transcript>` 隔離**：修復 72% LaTeX 暫停問題，全 6 款高科 iAI 模型實機通過 LaTeX 匯出驗證（120/120 自動化測試全數通過）。
           files: dist-release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

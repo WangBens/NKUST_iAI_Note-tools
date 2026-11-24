@@ -1,0 +1,53 @@
+plugins {
+    id 'com.android.application'
+}
+
+def appVersionName = project.hasProperty("APP_VERSION") ? project.property("APP_VERSION").toString().replaceFirst(/^v/, "") : "1.3.0"
+def appVersionCode = 130
+try {
+    def parts = appVersionName.tokenize('.')
+    if (parts.size() >= 3) {
+        appVersionCode = parts[0].toInteger() * 10000 + parts[1].toInteger() * 100 + parts[2].toInteger()
+    }
+} catch (ignored) {}
+
+android {
+    namespace 'com.wangbens.nkustiainotetools'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.wangbens.nkustiainotetools"
+        minSdk 24
+        targetSdk 35
+        versionCode appVersionCode
+        versionName appVersionName
+    }
+
+    signingConfigs {
+        release {
+            def ksPath = System.getenv("ANDROID_KEYSTORE_PATH")
+            if (ksPath) {
+                storeFile file(ksPath)
+                storePassword System.getenv("ANDROID_KEYSTORE_PASS") ?: "nkustiai2026"
+                keyAlias System.getenv("ANDROID_KEY_ALIAS") ?: "nkustiai"
+                keyPassword System.getenv("ANDROID_KEY_PASS") ?: "nkustiai2026"
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (System.getenv("ANDROID_KEYSTORE_PATH")) {
+                signingConfig signingConfigs.release
+            } else {
+                signingConfig signingConfigs.debug
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

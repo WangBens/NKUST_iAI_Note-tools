@@ -36,6 +36,7 @@
 6. **跨平台原生桌面版 APP（Windows / macOS / Linux）**
    - 封裝為 Electron 桌面應用程式，點擊即自動於背景啟動內建 `Bridge`、`Web Server` 與 `Gateway`，免開終端機、免安裝 Node.js 與 FFmpeg。
    - **首次啟動捷徑精靈**：安裝並首次啟動 APP 後，會主動跳出視窗詢問 **「是否要在桌面建立捷徑？」**——選 **「是」** 自動建立於使用者桌面；選 **「否」** 則自動建立於使用者安裝程式的資料夾中（完整支援 Windows `.lnk`、macOS `.app` 符號連結與 Linux `.desktop` 啟動器）。
+   - **自動檢查更新 & 左上角一鍵更新（`v1.2.0` 新增）**：每次開啟桌面版 APP 自動向 GitHub Releases 檢查是否有新版本；若有新版，左上角「知音筆記」旁將顯示 **「更新至 vX.X.X」** 按鈕，點擊即可即時顯示下載進度並自動啟動新版安裝更新（不影響網頁版介面）。
 
 ---
 
@@ -80,10 +81,11 @@ flowchart LR
 
 ## 📜 版本更新紀錄與版本控制
 
-本專案採用 **語意化版本控制（Semantic Versioning，`vMAJOR.MINOR.PATCH`）**。每當推送正式版 Git Tag（`v*`）時，GitHub Actions（`.github/workflows/release-desktop.yml`）會自動執行全部 **117 項自動化測試**，並同步編譯打包 **Windows、macOS、Linux** 三大作業系統的桌面安裝包發布至 [GitHub Releases](https://github.com/WangBens/NKUST_iAI_Note-tools/releases)。
+本專案採用 **語意化版本控制（Semantic Versioning，`vMAJOR.MINOR.PATCH`）**。每當推送正式版 Git Tag（`v*`）時，GitHub Actions（`.github/workflows/release-desktop.yml`）會自動執行全部 **119 項自動化測試**，並同步編譯打包 **Windows、macOS、Linux** 三大作業系統的桌面安裝包發布至 [GitHub Releases](https://github.com/WangBens/NKUST_iAI_Note-tools/releases)。
 
 | 版本號 | 發布日期 | 更新重點與版本控制項目 |
 | --- | --- | --- |
+| **`v1.2.0`** | 2026-11-24 | • **桌面版自動檢查與左上角一鍵自動更新**：新增 `electron/preload.cjs` 與 `electron/updater-utils.mjs`，開啟桌面版 APP 自動查詢 GitHub Releases 最新版本；若有新版本即於左上角顯示更新按鈕，點擊即時顯示下載百分比並依作業系統自動啟動新版安裝（網頁版維持原貌不更動）。<br>• **新增自動更新單元測試**：全專案擴充至 **119 項自動化測試**。 |
 | **`v1.1.0`** | 2026-11-23 | • **整份逐字稿單次直出模式（`lib/direct-study.ts`）**：60,000 字元內直接單次呼叫輸出唯一一份連貫的五段式 Markdown 講義，徹底解決過去分段拼湊重複與 JSON 跳脫破裂問題，速度提升 10 倍並大幅節省 Token。<br>• **雙層強制關閉思考模式**：前端與橋接器同步鎖定 `enable_thinking: false`（實測 `reasoning_tokens = 0`）與 `temperature: 0.1`。<br>• **跨學科程式級防腦補引擎（`enforceSourceGrounding`）**：自動比對逐字稿真實數字／位址，攔截無來源規格數據、外部架構、虛構實體與 Token 退化亂碼。<br>• **實機六大領域與六款 LLM 盲測驗證**：確認 `Furen-std` 為全科首選，單檔上限提升至 **100 MB**，全專案通過 **117 項自動化測試**。 |
 | **`v1.0.2`** | 2026-11-21 | • **同步官方最新模型清單與計費標準**：新增 `Nkust` 與 `Furen-coder`，並將 `Asr`（`whisper`）、`Furen-std`（`nemotron-3-super-120b`）、`Furen-max`（`nvidia-nemotron-3-ultra-550b-a55b`）等實際底層對應全面更新至最新公告。<br>• **正式發布三平台桌面版 APP**：修復 Linux `.deb` 封裝維護者設定，同步於 GitHub Releases 發布 Windows、macOS、Linux 三大平台安裝包。<br>• **獨立雙語文件**：提供內容完全對等之繁體中文（`README.md`）與英文（`README.en.md`）雙語說明文件。 |
 | **`v1.0.1`** | 2026-11-21 | • **首次啟動捷徑精靈**：安裝後首次啟動彈窗詢問是否於桌面建立捷徑（選「是」建於桌面、選「否」建於安裝資料夾），支援 Win `.lnk` / macOS `.app` / Linux `.desktop`。<br>• **JSON 容錯大升級**：新增本地語法修復，自動修補模型漏寫冒號（如 `"body"> ...`）、誤用中文引號與尾端空白註解物件，0 Token 救援失敗回覆並放寬二分切分重試配額。 |

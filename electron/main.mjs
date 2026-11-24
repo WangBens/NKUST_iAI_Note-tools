@@ -1,6 +1,8 @@
-import { app, BrowserWindow, dialog, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { spawn } from "node:child_process";
 import {
   chmodSync,
+  createWriteStream,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -8,8 +10,14 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  compareSemver,
+  GITHUB_LATEST_RELEASE_URL,
+  GITHUB_RELEASES_PAGE_URL,
+  pickReleaseAsset,
+} from "./updater-utils.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, "..");
@@ -18,6 +26,212 @@ const APP_SHORTCUT_NAME = "NKUST iAI Note Tools";
 let mainWindow = null;
 let gatewayUrl = "http://127.0.0.1:3000";
 const serverCleanups = [];
+
+let updaterState = {
+  status: "idle", // idle | checking | up-to-date | available | downloading | installing | error
+  currentVersion: app.getVersion(),
+  latestVersion: "",
+  releaseUrl: GITHUB_RELEASES_PAGE_URL,
+  assetName: "",
+  assetUrl: "",
+  percent: 0,
+  message: "",
+};
+
+function setUpdaterState(patch) {
+  updaterState = { ...updaterState, ...patch };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("desktop-updater:status", updaterState);
+  }
+  return updaterState;
+}
+
+async function checkForUpdates() {
+  if (
+    updaterState.status === "downloading" ||
+    updaterState.status === "installing"
+  ) {
+    return updaterState;
+  }
+  const currentVersion = app.getVersion();
+  setUpdaterState({
+    status: "checking",
+    currentVersion,
+    message: "",
+  });
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12_000);
+    const response = await fetch(GITHUB_LATEST_RELEASE_URL, {
+      signal: controller.signal,
+      headers: {
+        Accept: "application/vnd.github+json",
+        "User-Agent": `NKUST-iAI-Note-Tools/${currentVersion}`,
+      },
+    });
+    clearTimeout(timer);
+    if (!response.ok) {
+      return setUpdaterState({
+        status: "up-to-date",
+        currentVersion,
+        message: "",
+      });
+    }
+    const release = await response.json();
+    const tag = String(release?.tag_name || "").trim();
+    const latestVersion = tag.replace(/^v/i, "");
+    const releaseUrl =
+      typeof release?.html_url === "string" &&
+      /^https:\/\//i.test(release.html_url)
+        ? release.html_url
+        : GITHUB_RELEASES_PAGE_URL;
+
+    if (!latestVersion || compareSemver(latestVersion, currentVersion) <= 0) {
+      return setUpdaterState({
+        status: "up-to-date",
+        currentVersion,
+        latestVersion: latestVersion || currentVersion,
+        releaseUrl,
+        assetName: "",
+        assetUrl: "",
+        percent: 0,
+        message: "",
+      });
+    }
+
+    const asset = pickReleaseAsset(
+      release?.assets,
+      process.platform,
+      process.arch,
+    );
+    return setUpdaterState({
+      status: "available",
+      currentVersion,
+      latestVersion,
+      releaseUrl,
+      assetName: asset?.name || "",
+      assetUrl: asset?.browser_download_url || "",
+      percent: 0,
+      message: "",
+    });
+  } catch {
+    // Stay silent on offline / rate-limit startup checks so the user is not disturbed.
+    return setUpdaterState({
+      status: "up-to-date",
+      currentVersion,
+      message: "",
+    });
+  }
+}
+
+async function startAutoUpdate() {
+  if (
+    updaterState.status === "downloading" ||
+    updaterState.status === "installing"
+  ) {
+    return updaterState;
+  }
+  if (!updaterState.assetUrl) {
+    await shell.openExternal(updaterState.releaseUrl || GITHUB_RELEASES_PAGE_URL);
+    return updaterState;
+  }
+
+  setUpdaterState({ status: "downloading", percent: 0, message: "" });
+  const safeName =
+    basename(updaterState.assetName || "NKUST-iAI-Note-Tools-Update").replace(
+      /[^\w.\-()+ ]+/g,
+      "_",
+    );
+  const updateDir = join(app.getPath("temp"), "nkust-iai-note-tools-updates");
+  mkdirSync(updateDir, { recursive: true });
+  const destPath = join(updateDir, safeName);
+
+  try {
+    const response = await fetch(updaterState.assetUrl, {
+      headers: {
+        "User-Agent": `NKUST-iAI-Note-Tools/${app.getVersion()}`,
+      },
+    });
+    if (!response.ok || !response.body) {
+      throw new Error(`下載更新失敗（HTTP ${response.status}）`);
+    }
+
+    const totalBytes = Number(response.headers.get("content-length") || 0);
+    let receivedBytes = 0;
+    let lastPercent = -1;
+    const fileStream = createWriteStream(destPath);
+    const reader = response.body.getReader();
+
+    await new Promise(async (resolve, reject) => {
+      fileStream.on("error", reject);
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          receivedBytes += value.byteLength;
+          if (!fileStream.write(Buffer.from(value))) {
+            await new Promise((r) => fileStream.once("drain", r));
+          }
+          if (totalBytes > 0) {
+            const percent = Math.min(
+              99,
+              Math.round((receivedBytes / totalBytes) * 100),
+            );
+            if (percent !== lastPercent) {
+              lastPercent = percent;
+              setUpdaterState({ status: "downloading", percent });
+            }
+          }
+        }
+        fileStream.end(resolve);
+      } catch (err) {
+        fileStream.destroy();
+        reject(err);
+      }
+    });
+
+    setUpdaterState({ status: "installing", percent: 100, message: "" });
+
+    if (process.platform === "win32" && /\.exe$/i.test(destPath)) {
+      const child = spawn(destPath, [], {
+        detached: true,
+        stdio: "ignore",
+      });
+      child.unref();
+      setTimeout(() => app.quit(), 400);
+      return updaterState;
+    }
+
+    if (process.platform === "linux" && /\.AppImage$/i.test(destPath)) {
+      chmodSync(destPath, 0o755);
+      const child = spawn(destPath, [], {
+        detached: true,
+        stdio: "ignore",
+      });
+      child.unref();
+      setTimeout(() => app.quit(), 400);
+      return updaterState;
+    }
+
+    // macOS .dmg / Windows .zip / Linux .deb -> open downloaded package with OS handler
+    const openErr = await shell.openPath(destPath);
+    if (openErr) {
+      shell.showItemInFolder(destPath);
+    }
+    return setUpdaterState({
+      status: "available",
+      percent: 100,
+      message: "已下載並開啟更新檔",
+    });
+  } catch (error) {
+    return setUpdaterState({
+      status: "error",
+      percent: 0,
+      message:
+        error instanceof Error ? error.message : "下載更新時發生錯誤，請重試",
+    });
+  }
+}
 
 function getShortcutStatePath() {
   return join(app.getPath("userData"), "shortcut-prompt-v1.json");
@@ -251,6 +465,7 @@ async function createMainWindow() {
     autoHideMenuBar: true,
     backgroundColor: "#f8fafc",
     webPreferences: {
+      preload: join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -266,8 +481,13 @@ async function createMainWindow() {
   });
 
   await mainWindow.loadURL(gatewayUrl);
+  void checkForUpdates();
   await promptShortcutOnFirstRun(mainWindow);
 }
+
+ipcMain.handle("desktop-updater:get-status", () => updaterState);
+ipcMain.handle("desktop-updater:check", () => checkForUpdates());
+ipcMain.handle("desktop-updater:start", () => startAutoUpdate());
 
 app.whenReady().then(async () => {
   try {

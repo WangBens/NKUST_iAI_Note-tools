@@ -259,6 +259,110 @@ function MarkdownPreview({ markdown }: { markdown: string }) {
   );
 }
 
+type DesktopUpdaterState = {
+  status:
+    | 'idle'
+    | 'checking'
+    | 'up-to-date'
+    | 'available'
+    | 'downloading'
+    | 'installing'
+    | 'error';
+  currentVersion: string;
+  latestVersion: string;
+  releaseUrl: string;
+  assetName: string;
+  assetUrl: string;
+  percent: number;
+  message: string;
+};
+
+type DesktopUpdaterBridge = {
+  getStatus: () => Promise<DesktopUpdaterState>;
+  checkForUpdates: () => Promise<DesktopUpdaterState>;
+  startUpdate: () => Promise<DesktopUpdaterState>;
+  onStatusChange: (
+    callback: (state: DesktopUpdaterState) => void,
+  ) => () => void;
+};
+
+function getDesktopUpdater(): DesktopUpdaterBridge | undefined {
+  if (typeof window === 'undefined') return undefined;
+  return (window as unknown as { desktopUpdater?: DesktopUpdaterBridge })
+    .desktopUpdater;
+}
+
+function DesktopUpdateButton() {
+  const [updateState, setUpdateState] = useState<DesktopUpdaterState | null>(
+    null,
+  );
+
+  useEffect(() => {
+    const bridge = getDesktopUpdater();
+    if (!bridge) return;
+    let active = true;
+    bridge
+      .getStatus()
+      .then((state) => {
+        if (active && state) setUpdateState(state);
+      })
+      .catch(() => {});
+    const unsubscribe = bridge.onStatusChange((state) => {
+      if (active) setUpdateState(state);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  if (
+    !updateState ||
+    !['available', 'downloading', 'installing', 'error'].includes(
+      updateState.status,
+    )
+  ) {
+    return null;
+  }
+
+  const busy =
+    updateState.status === 'downloading' ||
+    updateState.status === 'installing';
+
+  const label =
+    updateState.status === 'downloading'
+      ? `下載更新中 ${updateState.percent}%`
+      : updateState.status === 'installing'
+        ? '正在啟動更新安裝…'
+        : updateState.status === 'error'
+          ? '更新失敗（點擊重試）'
+          : `更新至 v${updateState.latestVersion}`;
+
+  return (
+    <button
+      type="button"
+      className={`desktop-update-pill ${updateState.status === 'error' ? 'is-error' : ''}`}
+      disabled={busy}
+      title={
+        updateState.message ||
+        `發現 GitHub Releases 新版本 v${updateState.latestVersion}（目前 v${updateState.currentVersion}），點擊自動下載並更新`
+      }
+      onClick={() => {
+        const bridge = getDesktopUpdater();
+        if (!bridge || busy) return;
+        void bridge.startUpdate();
+      }}
+    >
+      {busy ? (
+        <LoaderCircle size={14} className="spin" />
+      ) : (
+        <Download size={14} />
+      )}
+      <span>{label}</span>
+    </button>
+  );
+}
+
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activeXhrRef = useRef<XMLHttpRequest | null>(null);
@@ -1367,17 +1471,20 @@ export default function Home() {
         </span>
       </div>
       <header className="site-header">
-        <button
-          type="button"
-          className="mini-brand"
-          onClick={resetHome}
-          aria-label="回到首頁"
-        >
-          <span>
-            <Headphones size={19} />
-          </span>
-          <strong>知音筆記</strong>
-        </button>
+        <div className="brand-cluster">
+          <button
+            type="button"
+            className="mini-brand"
+            onClick={resetHome}
+            aria-label="回到首頁"
+          >
+            <span>
+              <Headphones size={19} />
+            </span>
+            <strong>知音筆記</strong>
+          </button>
+          <DesktopUpdateButton />
+        </div>
         <a
           href={IAI_API_BASE}
           target="_blank"

@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Release tag to publish (e.g., v1.1.0)"
+        description: "Release tag to publish (e.g., v1.2.0)"
         required: true
-        default: "v1.1.0"
+        default: "v1.2.0"
 
 permissions:
   contents: write
@@ -103,13 +103,10 @@ jobs:
             - **macOS (Apple Silicon `arm64` / Intel `x64`)**：下載 `.dmg` 或 `.zip`
             - **Linux (x64)**：下載 `.AppImage`（通用免安裝）或 `.deb`（Ubuntu / Debian 安裝包）
 
-            ### ✨ 本版亮點與版本更新（v1.1.0）
-            - **整份逐字稿單次直出模式（Single-Shot Direct Markdown）**：善用高科 iAI `128K～1M` 長上下文視窗，60,000 字元以內直接單次呼叫輸出唯一一份連貫的五段式 Markdown 講義（取代過去 20～35 通分段 JSON 呼叫），徹底消除分段重複拼湊與 JSON 跳脫破裂問題，速度提升 10 倍、大幅節省 Token 額度。
-            - **全面強制關閉思考模式（`enable_thinking: false`）**：前端與本機橋接器雙層鎖定關閉推論思考模式（實測 `reasoning_tokens = 0`）並調降溫度至 `0.1`，大幅加快回應速度並避免過度發散。
-            - **跨學科通用「程式級防腦補引擎」（`enforceSourceGrounding`）**：自動解析逐字稿中的所有阿拉伯與中文口語數字及十六進位位址，程式化攔截無來源的硬體規格數值、外部架構與虛構實體，並自動修復行內公式、表格對齊與 Token 退化亂碼。
-            - **全新五段式實戰學習講義結構**：統一輸出「這堂課在講什麼（含建議閱讀順序、核心主軸）」、「核心專有名詞對照表／符號與單位」、分章正文教學、「總整理表」、「常見失分點與迷思」、「老師可能會考的考題」與「考前自我檢查」。
-            - **高科 iAI 六款 LLM 實機盲測驗證**：完成 6 大跨學科領域與 34 分鐘真實錄音實機驗證，確認 **`Furen-std`** 為綜合速度、零亂碼與品質首選，全專案通過 **117 項自動化測試**。
-            - **單檔上限提升至 100 MB & 三平台桌面安裝包**：同步提供 Windows、macOS、Linux 三大作業系統桌面版 APP，並內建首次啟動捷徑精靈與零個資留存保護。
+            ### ✨ 本版亮點與版本更新（v1.2.0）
+            - **桌面版啟動自動檢查更新 & 左上角一鍵自動更新**：開啟桌面版 APP 時背景自動查詢 GitHub Releases 最新版本；若有新版本，視窗左上角「知音筆記」旁將自動顯示 **「更新至 vX.X.X」** 按鈕，點擊即可即時顯示下載進度（`0% → 100%`）並依作業系統（Windows `Setup.exe` / macOS `.dmg` / Linux `.AppImage`）自動啟動新版安裝更新（網頁版維持原貌不更動）。
+            - **整份逐字稿單次直出模式 & 雙層關閉思考模式**：60,000 字元內單次 1 通呼叫直出完整五段式講義，全面鎖定 `enable_thinking: false`（實測 `reasoning_tokens = 0`）與跨學科程式級防腦補引擎（`enforceSourceGrounding`）。
+            - **三平台桌面安裝包 & 119 項自動化測試**：同步發布 Windows、macOS、Linux 安裝檔，內建首次啟動捷徑精靈與零個資留存保護。
           files: dist-release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
